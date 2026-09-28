@@ -181,6 +181,50 @@ function PokemonBattle({
     });
     return { dex, moves, learnsets };
   }, []);
+  const formKeyOf = (value) => String(value || "").normalize("NFKC").toLowerCase().replace(/[^a-z0-9가-힣]/g, "");
+  const speciesAliases = React.useMemo(() => {
+    const aliases = {};
+    const add = (label, id) => { const key = formKeyOf(label); if (key && !aliases[key]) aliases[key] = id; };
+    Object.keys(catalog.dex).forEach((id) => {
+      const entry = catalog.dex[id];
+      if (!entry.baseSpecies || entry.num <= 0) return;
+      const baseKo = POKEMON_PROGRESS_DATA.species[entry.num - 1] && POKEMON_PROGRESS_DATA.species[entry.num - 1][0];
+      if (!baseKo) return;
+      const suffix = entry.name.includes("-") ? entry.name.slice(entry.name.indexOf("-") + 1) : "";
+      if (suffix) add(baseKo + suffix, id);
+      const region = entry.name.match(/-(Alola|Galar|Hisui|Paldea)$/i);
+      if (!region) return;
+      const regionKo = { alola: "알로라", galar: "가라르", hisui: "히스이", paldea: "팔데아" }[region[1].toLowerCase()];
+      add(regionKo + baseKo, id);
+      add(regionKo + baseKo + "폼", id);
+      add(baseKo + regionKo, id);
+      add(baseKo + regionKo + "폼", id);
+    });
+    Object.entries(POKEMON_FORM_KO).forEach(([id, name]) => { if (catalog.dex[id]) add(name, id); });
+    add("자시안 검왕", "zaciancrowned");
+    add("검왕 자시안", "zaciancrowned");
+    add("자시안 검왕폼", "zaciancrowned");
+    add("자마젠타 방패왕", "zamazentacrowned");
+    add("방패왕 자마젠타", "zamazentacrowned");
+    add("자마젠타 방패왕폼", "zamazentacrowned");
+    [["컴뱃종", "taurospaldeacombat"], ["블레이즈종", "taurospaldeablaze"], ["워터종", "taurospaldeaaqua"]]
+      .forEach(([breed, id]) => {
+        add("팔데아 켄타로스 " + breed, id);
+        add("켄타로스 팔데아의 모습 " + breed, id);
+      });
+    add("가라르 불비달마 달마모드", "darmanitangalarzen");
+    add("알로라 레트라 주인", "raticatealolatotem");
+    add("알로라 텅구리 주인", "marowakalolatotem");
+    return aliases;
+  }, [catalog]);
+  const resolveSpeciesId = (value) => {
+    const raw = String(value == null ? "" : value).trim();
+    const id = idOf(raw);
+    if (catalog.dex[id]) return id;
+    if (speciesAliases[formKeyOf(raw)]) return speciesAliases[formKeyOf(raw)];
+    const number = /^\d+$/.test(id) ? Number(id) : POKEMON_PROGRESS_DATA.species.findIndex((row) => row[0] === raw) + 1;
+    return number > 0 ? Object.keys(catalog.dex).find((key) => catalog.dex[key].num === number && !catalog.dex[key].baseSpecies) || id : id;
+  };
   const [game, setGame] = React.useState(null);
   const currentOpponent = trainerParty && game ? trainerParty[game.foeIndex] || {} : encounter;
   const meta = game && catalog.dex[game.foe.species]
@@ -327,14 +371,7 @@ function PokemonBattle({
   const makePokemon = (raw, uid, wild = false) => {
     const input = typeof raw === "string" ? { species: raw } : raw || {};
     const rawSpecies = input.species || input.id || input.dexNo || input.name || "";
-    const requestedId = idOf(rawSpecies);
-    const koreanIndex = POKEMON_PROGRESS_DATA.species.findIndex((row) => row[0] === String(rawSpecies));
-    const species = catalog.dex[requestedId] ? requestedId
-      : /^\d+$/.test(requestedId)
-        ? Object.keys(catalog.dex).find((key) => catalog.dex[key].num === Number(requestedId) && !catalog.dex[key].baseSpecies) || requestedId
-        : koreanIndex >= 0
-          ? Object.keys(catalog.dex).find((key) => catalog.dex[key].num === koreanIndex + 1 && !catalog.dex[key].baseSpecies) || requestedId
-          : requestedId;
+    const species = resolveSpeciesId(rawSpecies);
     const dexEntry = catalog.dex[species];
     if (!dexEntry || !dexEntry.baseStats || dexEntry.num <= 0) return null;
     const level = clamp(input.level == null ? 5 : input.level, 1, 100);
@@ -438,7 +475,7 @@ function PokemonBattle({
           ? ["rustedshield", "zamazentacrowned"] : null;
         if (!crown) return;
         if (!pokemon.heldItem && raw.crowned !== false) pokemon.heldItem = crown[0];
-        if (pokemon.heldItem === crown[0] && pokemon.species !== crown[1]) crownOpponent(pokemon, crown[1]);
+        if (pokemon.heldItem === crown[0]) crownOpponent(pokemon, crown[1]);
       });
       const highLevel = foes.some((pokemon) => pokemon.level >= 50);
       const explicitMega = opponents.findIndex((raw) => raw && typeof raw === "object" && raw.mega === true);
@@ -449,7 +486,7 @@ function PokemonBattle({
         const pokemon = foes[index];
         const raw = opponents[index] && typeof opponents[index] === "object" ? opponents[index] : {};
         if (!pokemon || raw.mega === false) return null;
-        const wanted = idOf(raw.megaForm || encounter.megaForm || "");
+        const wanted = resolveSpeciesId(raw.megaForm || encounter.megaForm || "");
         return POKEMON_BATTLE_MEGA_DATA.find(([base, stone, form, move]) => base === pokemon.species &&
           catalog.dex[form] && (!wanted || wanted === form) &&
           (stone ? !pokemon.heldItem || pokemon.heldItem === stone : pokemon.moves.includes(move)));
@@ -568,7 +605,7 @@ function PokemonBattle({
   };
   const scheduledFoeForm = async (next) => {
     const schedule = next.foe && next.foe.formAtTurn;
-    const target = schedule && idOf(schedule[next.turn]);
+    const target = schedule && resolveSpeciesId(schedule[next.turn]);
     if (target && target !== next.foe.species) await changeForm(next, next.foe, target, "foe");
   };
   const moveForm = async (next, pokemon, side, moveId) => {
