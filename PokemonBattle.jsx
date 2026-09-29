@@ -33,8 +33,10 @@ function PokemonBattle({
   const ROOT = "https://play.pokemonshowdown.com/";
   const wildEncounter = trainerParty ? false : encounter.wild == null ? encounter.trainer !== true : encounter.wild !== false;
   const trainerName = !wildEncounter ? String(encounter.trainerName || (trainerParty && encounter.name) || "트레이너") : "";
-  const genericTrainer = /^(?:트레이너|반바지 꼬마|짧은 치마|등산가|낚시꾼|연구원|엘리트트레이너|플라스마단|백팩커|경찰관)(?:\s*\d+)?$/.test(trainerName);
-  const namedTrainer = !wildEncounter && (encounter.named === true || encounter.boss === true || /챔피언|사천왕|관장|라이벌/.test(trainerName) || (trainerName !== "트레이너" && !genericTrainer));
+  const trainerRole = trainerName + " " + String(encounter.trainerClass || encounter.role || "");
+  const notableTrainer = /챔피언|사천왕|관장|라이벌|주인공|엘리트\s*트레이너|에이스\s*트레이너|보스|간부/.test(trainerRole);
+  const knownTrainer = /^(?:레드|그린|블루|심향|금선|휘웅|봄이|민진|빛나|투희|공명|명희|세레나|칼름|미월|영태|우리|승재|보민|푸름|난천|목호|성호|윤진|아이리스|카르네|단델|네모|페퍼|모란|비주기|게치스|플라드리|구즈마|로즈|올림|투로|N)$/.test(trainerName.trim());
+  const namedTrainer = !wildEncounter && (encounter.named === true || encounter.boss === true || notableTrainer || knownTrainer);
   const trainerSprite = (() => {
     const explicit = String(encounter.trainerSprite || encounter.opponentTrainer || opponentTrainer || "").toLowerCase();
     if (/^[a-z0-9-]+$/.test(explicit)) return explicit;
@@ -482,9 +484,8 @@ function PokemonBattle({
       });
       const highLevel = foes.some((pokemon) => pokemon.level >= 50);
       const explicitMega = opponents.findIndex((raw) => raw && typeof raw === "object" && raw.mega === true);
-      const hasStone = foes.some((pokemon) => POKEMON_BATTLE_MEGA_DATA.some(([base, stone]) => base === pokemon.species && stone === pokemon.heldItem));
       const allowMega = encounter.mega !== false &&
-        (explicitMega >= 0 || hasStone || encounter.mega === true || namedTrainer || highLevel);
+        (explicitMega >= 0 || encounter.mega === true || namedTrainer || highLevel);
       const megaFor = (index) => {
         const pokemon = foes[index];
         const raw = opponents[index] && typeof opponents[index] === "object" ? opponents[index] : {};
@@ -539,11 +540,17 @@ function PokemonBattle({
     if (!pokemon || pokemon.hp <= 0) return;
     const other = side === "own" ? next.foe : next.owned.find((row) => row.uid === next.activeUid);
     const ability = pokemon.ability;
-    const weather = { drizzle: "raindance", drought: "sunnyday", sandstream: "sandstorm", snowwarning: "hail" }[ability];
+    const weather = { drizzle: "raindance", drought: "sunnyday", sandstream: "sandstorm", snowwarning: "hail", orichalcumpulse: "sunnyday" }[ability];
     if (weather) {
       next.field.weather = weather;
       next.field.weatherUntil = next.turn + 4;
       addLog(next, pokemon.nickname + "의 " + abilityName(pokemon) + "! 날씨가 바뀌었다!");
+    }
+    const terrain = { electricsurge: "electricterrain", grassysurge: "grassyterrain", mistysurge: "mistyterrain", psychicsurge: "psychicterrain", hadronengine: "electricterrain" }[ability];
+    if (terrain) {
+      next.field.terrain = terrain;
+      next.field.terrainUntil = next.turn + 4;
+      addLog(next, pokemon.nickname + "의 " + abilityName(pokemon) + "! 필드가 바뀌었다!");
     }
     if (ability === "intimidate" && other && other.hp > 0) {
       addLog(next, pokemon.nickname + "의 위협!");
@@ -552,6 +559,21 @@ function PokemonBattle({
     if (ability === "download" && other && other.hp > 0) {
       const key = statOf(other, "def") <= statOf(other, "spd") ? "atk" : "spa";
       boostStages(next, pokemon, { [key]: 1 }, false);
+    }
+    if (ability === "intrepidsword" && !pokemon.swordBoostUsed) {
+      pokemon.swordBoostUsed = true;
+      addLog(next, pokemon.nickname + "의 " + abilityName(pokemon) + "!");
+      boostStages(next, pokemon, { atk: 1 }, false);
+    }
+    if (ability === "dauntlessshield" && !pokemon.shieldBoostUsed) {
+      pokemon.shieldBoostUsed = true;
+      addLog(next, pokemon.nickname + "의 " + abilityName(pokemon) + "!");
+      boostStages(next, pokemon, { def: 1 }, false);
+    }
+    if (ability === "supersweetsyrup" && !pokemon.syrupTriggered && other && other.hp > 0) {
+      pokemon.syrupTriggered = true;
+      addLog(next, pokemon.nickname + "의 " + abilityName(pokemon) + "!");
+      if (!other.substituteHp) boostStages(next, other, { evasion: -1 });
     }
   };
   const cloneGame = () => ({
@@ -731,6 +753,8 @@ function PokemonBattle({
     if (attacker.ability === "strongjaw" && /(bite|fang|crunch|jaw)/.test(moveId)) abilityPower *= 1.5;
     if (attacker.ability === "sharpness" && /(slash|cut|blade|scythe|sacredsword)/.test(moveId)) abilityPower *= 1.5;
     if (attacker.ability === "waterbubble" && type === "water") abilityPower *= 2;
+    if (attacker.ability === "orichalcumpulse" && physical && weather === "sunnyday") abilityPower *= 4 / 3;
+    if (attacker.ability === "hadronengine" && !physical && next.field.terrain === "electricterrain") abilityPower *= 4 / 3;
     if (attacker.ability === "flashfire" && attacker.flashFire && type === "fire") abilityPower *= 1.5;
     if (defenseAbility === "thickfat" && (type === "fire" || type === "ice") || defenseAbility === "waterbubble" && type === "fire") abilityPower *= .5;
     if (defenseAbility === "multiscale" && defender.hp >= statOf(defender, "hp")) abilityPower *= .5;
@@ -1999,7 +2023,10 @@ function PokemonBattle({
       const previous = Object.fromEntries(current.owned.map((pokemon) => [pokemon.uid, pokemon]));
       const updated = incoming.owned.map((raw, index) => {
         const pokemon = makePokemon(raw, "starter-" + index);
-        return pokemon ? { ...pokemon, stages: previous[pokemon.uid] && previous[pokemon.uid].stages || {} } : null;
+        return pokemon ? { ...pokemon, stages: previous[pokemon.uid] && previous[pokemon.uid].stages || {},
+          swordBoostUsed: !!(previous[pokemon.uid] && previous[pokemon.uid].swordBoostUsed),
+          shieldBoostUsed: !!(previous[pokemon.uid] && previous[pokemon.uid].shieldBoostUsed),
+          syrupTriggered: !!(previous[pokemon.uid] && previous[pokemon.uid].syrupTriggered) } : null;
       }).filter(Boolean);
       return { ...current, owned: updated, activeUid: incoming.activeUid || current.activeUid, expShare: !!incoming.expShare };
     });
