@@ -196,6 +196,7 @@ function PokemonStatusBW({
     if (legacy ? data.keyStoneOwned : data.k) items.keystone = 1;
     return { legacy, state: { version: 1, owned,
       activeUid: (legacy ? data.leadUid : data.a) || (owned.find((pokemon) => !pokemon.inBox) || {}).uid || "",
+      expShare: legacy ? data.expShare == null ? undefined : !!data.expShare : data.x == null ? undefined : !!data.x,
       updatedAt: time },
       bag: hasBag ? { version: 1, items,
         money: legacy ? data.money : data.m,
@@ -208,7 +209,7 @@ function PokemonStatusBW({
       STATS.map((key) => pokemon.ivs && pokemon.ivs[key] != null ? pokemon.ivs[key] : 31),
       STATS.map((key) => pokemon.evs && pokemon.evs[key] || 0), pokemon.maxHp, pokemon.moveNames, pokemon.inBox ? 1 : 0, pokemon.gender || "", pokemon.status || "", pokemon.heldItem || "", pokemon.ability || ""]),
     a: state.activeUid || "", i: Object.fromEntries(Object.entries(bagState.items || {}).filter(([, count]) => Number(count) > 0)), m: bagState.money == null ? 0 : bagState.money,
-    g: bagState.appliedGrants || [], k: bagState.items && bagState.items.keystone > 0 ? 1 : 0,
+    g: bagState.appliedGrants || [], k: bagState.items && bagState.items.keystone > 0 ? 1 : 0, x: state.expShare ? 1 : 0,
     t: Math.max(Number(state.updatedAt) || 0, Number(bagState.updatedAt) || 0) || Date.now()
   });
   const newest = (values) => values.filter((value) => value && typeof value === "object")
@@ -267,6 +268,8 @@ function PokemonStatusBW({
     const battleState = typeof PokemonBattle !== "undefined" ? PokemonBattle.runtimeState : null;
     const battleBag = typeof PokemonBattle !== "undefined" ? PokemonBattle.runtimeBag : null;
     const saved = newest([battleState, PokemonStatusBW.runtimeState, templateState, decode(stateText), direct && direct.state]);
+    const expShareSource = newest([battleState, PokemonStatusBW.runtimeState, templateState, decode(stateText), direct && direct.state]
+      .filter((state) => state && state.expShare != null));
     const savedBag = newest([battleBag, PokemonStatusBW.runtimeBag, templateBag, decode(bagText), direct && direct.bag]);
     const party = saved && Array.isArray(saved.owned) && saved.owned.length ? saved.owned : initialParty;
     const normalizedParty = (Array.isArray(party) ? party : []).map((raw, index) => {
@@ -315,7 +318,7 @@ function PokemonStatusBW({
     const activeUid = saved && saved.activeUid && normalizedParty.some((pokemon) => pokemon.uid === saved.activeUid && !pokemon.inBox)
       ? saved.activeUid : (normalizedParty.find((pokemon) => !pokemon.inBox) || {}).uid || "";
     const nextSnapshot = { ...(saved && typeof saved === "object" ? saved : {}), version: 1, owned: normalizedParty,
-      activeUid, updatedAt };
+      activeUid, expShare: !!(saved && saved.expShare != null ? saved.expShare : expShareSource && expShareSource.expShare), updatedAt };
     setOwned(normalizedParty);
     setBag(nextBag);
     setMoney(nextMoney);
@@ -379,7 +382,8 @@ function PokemonStatusBW({
     const updatedAt = Date.now();
     const nextMoney = options.money == null ? money : clamp(options.money, 0, 9999999);
     const nextSnapshot = { ...snapshot, version: 1, owned: nextOwned,
-      activeUid: options.activeUid == null ? snapshot.activeUid : options.activeUid, updatedAt };
+      activeUid: options.activeUid == null ? snapshot.activeUid : options.activeUid,
+      expShare: options.expShare == null ? !!snapshot.expShare : !!options.expShare, updatedAt };
     if (bag && bag.keystone > 0) nextBag.keystone = 1;
     const nextBagMeta = { ...bagMeta, version: 1, money: nextMoney, updatedAt, items: nextBag };
     setOwned(nextOwned);
@@ -442,6 +446,18 @@ function PokemonStatusBW({
     return Math.floor((core + 5) * multiplier);
   };
   const hpFromEvs = (pokemon, values) => actualStat(pokemon, "hp", values) || maxHp(pokemon);
+  const healParty = async () => {
+    const nextOwned = owned.map((pokemon) => {
+      if (pokemon.inBox) return pokemon;
+      const full = actualStat(pokemon, "hp") || maxHp(pokemon);
+      return { ...pokemon, hp: full, maxHp: full, status: "NORMAL", sleepTurns: 0,
+        pp: (pokemon.moves || []).map((moveId, index) => {
+          const known = teachCatalog.moves.find((row) => row[0] === moveId);
+          return known ? Number(known[4]) || Number(pokemon.pp && pokemon.pp[index]) || 1 : Number(pokemon.pp && pokemon.pp[index]) || 1;
+        }) };
+    });
+    await save(nextOwned, bag, "파티 포켓몬의 HP·상태 이상·PP가 모두 회복됐습니다.");
+  };
   const changeNature = async (nextNature) => {
     if (!selected || !NATURES[nextNature] || selected.nature === nextNature) return;
     const nextOwned = owned.map((pokemon) => pokemon.uid === selected.uid ? { ...pokemon, nature: nextNature } : pokemon);
@@ -680,8 +696,11 @@ function PokemonStatusBW({
       {button("▣ 가방  " + Object.values(bag).reduce((a, b) => a + b, 0), () => setView("bag"))}
       {button("▣ PC 보관함  " + boxMembers.length, () => { setView("pc"); setPage(0); setQuery(""); })}
       {button("▤ 상점", () => setView("shop"))}
+      <div style={{ gridColumn: "1 / -1" }}>{button("마스터 학습장치 " + (snapshot.expShare ? "ON · 파티 전원 경험치" : "OFF · 참가자만 경험치"),
+        () => save(owned, bag, "마스터 학습장치가 " + (snapshot.expShare ? "꺼졌습니다." : "켜졌습니다."), { expShare: !snapshot.expShare }), snapshot.expShare)}</div>
     </div>}
     {(view === "party" || view === "pc") && <>
+      {view === "party" && <div style={{ marginBottom: 9 }}>{button("✚ 파티 전체 회복 · HP / 상태 이상 / PP", healParty, false, !partyMembers.length)}</div>}
       <div style={{ display: "flex", gap: 8, marginBottom: 9 }}>
         <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(0); }} placeholder="이름 또는 영문 ID 검색" style={{ flex: 1, minWidth: 0, padding: 8, background: "#102e43", border: "2px solid #4ce4ed", color: "#fff", fontFamily: "inherit" }} />
         <span style={{ fontSize: 11, alignSelf: "center" }}>파티 {partyMembers.length}/6 · PC {boxMembers.length}</span>

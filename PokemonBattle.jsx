@@ -142,6 +142,7 @@ function PokemonBattle({
     if (legacy ? data.keyStoneOwned : data.k) items.keystone = 1;
     return { legacy, state: { version: 1, owned,
       activeUid: (legacy ? data.leadUid : data.a) || (owned.find((pokemon) => !pokemon.inBox) || {}).uid || "",
+      expShare: legacy ? data.expShare == null ? undefined : !!data.expShare : data.x == null ? undefined : !!data.x,
       updatedAt: time },
       bag: hasBag ? { version: 1, items,
         money: legacy ? data.money : data.m,
@@ -154,7 +155,7 @@ function PokemonBattle({
       STATS.map((key) => pokemon.ivs && pokemon.ivs[key] != null ? pokemon.ivs[key] : 31),
       STATS.map((key) => pokemon.evs && pokemon.evs[key] || 0), pokemon.maxHp, pokemon.moveNames, pokemon.inBox ? 1 : 0, pokemon.gender || "", pokemon.status || "", pokemon.heldItem || "", pokemon.ability || ""]),
     a: state.activeUid || "", i: Object.fromEntries(Object.entries(bagState.items || {}).filter(([, count]) => Number(count) > 0)), m: bagState.money == null ? 0 : bagState.money,
-    g: bagState.appliedGrants || [], k: bagState.items && bagState.items.keystone > 0 ? 1 : 0,
+    g: bagState.appliedGrants || [], k: bagState.items && bagState.items.keystone > 0 ? 1 : 0, x: state.expShare ? 1 : 0,
     t: Math.max(Number(state.updatedAt) || 0, Number(bagState.updatedAt) || 0) || Date.now()
   });
   const catalog = React.useMemo(() => {
@@ -441,6 +442,8 @@ function PokemonBattle({
     const statusState = typeof PokemonStatusBW !== "undefined" ? PokemonStatusBW.runtimeState : null;
     const statusBag = typeof PokemonStatusBW !== "undefined" ? PokemonStatusBW.runtimeBag : null;
     const saved = newest([statusState, PokemonBattle.runtimeState, templateState, readState(stateText), direct && direct.state]);
+    const expShareSource = newest([statusState, PokemonBattle.runtimeState, templateState, readState(stateText), direct && direct.state]
+      .filter((state) => state && state.expShare != null));
     const savedBag = newest([statusBag, PokemonBattle.runtimeBag, templateBag, readState(bagText), direct && direct.bag]);
     const startingBag = normalBag(savedBag && (savedBag.items || savedBag) || initialBag);
     if ([statusBag, PokemonBattle.runtimeBag, templateBag, readState(bagText), direct && direct.bag]
@@ -512,11 +515,11 @@ function PokemonBattle({
     const opening = trainerName ? trainerName + "가 " + foe.nickname + "을(를) 내보냈다!" : foe.nickname + "이(가) 나타났다!";
     foe.enteredTurn = 1;
     if (active) active.enteredTurn = 1;
-    const openingGame = { owned, foe, foes, foeIndex: 0, activeUid: active ? active.uid : "", participants: active ? [active.uid] : [], expGains: [], pendingLearn: [], pendingEvolutions: [], resultSent: false, rewardApplied: false, rewardMoney: 0, payDayMoney: 0, payDayApplied: false, megaUsed: false, foeMegaUsed: false, turn: 1, outcome: "", log: [opening], battleLog: [{ turn: 1, text: opening }], field: { own: {}, foe: {}, weather: "", weatherUntil: 0, trickRoomUntil: 0 } };
+    const openingGame = { owned, foe, foes, foeIndex: 0, activeUid: active ? active.uid : "", expShare: !!(saved && saved.expShare != null ? saved.expShare : expShareSource && expShareSource.expShare), pendingSwitch: false, participants: active ? [active.uid] : [], expGains: [], pendingLearn: [], pendingEvolutions: [], resultSent: false, rewardApplied: false, rewardMoney: 0, payDayMoney: 0, payDayApplied: false, megaUsed: false, foeMegaUsed: false, turn: 1, outcome: "", log: [opening], battleLog: [{ turn: 1, text: opening }], field: { own: {}, foe: {}, weather: "", weatherUntil: 0, trickRoomUntil: 0 } };
     enterAbility(openingGame, foe, "foe");
     if (active) enterAbility(openingGame, active, "own");
     setGame(openingGame);
-    PokemonBattle.runtimeState = { version: 1, owned, activeUid: active ? active.uid : "", updatedAt: Number(saved && saved.updatedAt) || Date.now() };
+    PokemonBattle.runtimeState = { version: 1, owned, activeUid: active ? active.uid : "", expShare: openingGame.expShare, updatedAt: Number(saved && saved.updatedAt) || Date.now() };
     PokemonBattle.runtimeBag = { ...(savedBag || { version: 1 }), items: startingBag, updatedAt: Number(savedBag && savedBag.updatedAt) || Date.now() };
     if (owned.length && (!templateState || direct || Number(PokemonBattle.runtimeState.updatedAt) > Number(templateState.updatedAt || 0)) && typeof setTemplateValue === "function") {
       try { setTemplateValue("POKEMON_STATE", encodeURIComponent(JSON.stringify(PokemonBattle.runtimeState))); } catch (ignore) { /* stateText remains available */ }
@@ -561,6 +564,9 @@ function PokemonBattle({
     participants: [...(game.participants || [])], expGains: [...(game.expGains || [])],
     pendingLearn: [...(game.pendingLearn || [])], pendingEvolutions: [...(game.pendingEvolutions || [])]
   });
+  const showBattleFrame = (next) => setGame({ ...next,
+    owned: next.owned.map((pokemon) => ({ ...pokemon })), foe: { ...next.foe },
+    log: [...next.log], battleLog: [...next.battleLog] });
   const FORM_BASES = "aegislash arceus calyrex castform cherrim cramorant darmanitan deoxys dialga eiscue genesect giratina hoopa keldeo kyurem meloetta minior morpeko necrozma ogerpon palafin palkia rotom shaymin silvally terapagos urshifu wishiwashi zacian zamazenta zygarde".split(" ");
   const formBase = (pokemon) => {
     const entry = catalog.dex[pokemon.species];
@@ -807,12 +813,14 @@ function PokemonBattle({
   const awardExperience = (next) => {
     const participants = next.owned.filter((pokemon) => pokemon.hp > 0 && (next.participants || []).includes(pokemon.uid));
     if (!participants.length) return;
+    const recipients = next.expShare ? next.owned.filter((pokemon) => !pokemon.inBox && pokemon.hp > 0) : participants;
     const baseExp = progressOf(next.foe)[2];
-    participants.forEach((pokemon) => {
+    recipients.forEach((pokemon) => {
       if (pokemon.level >= 100) return;
       const scale = Math.pow((2 * next.foe.level + 10) / (next.foe.level + pokemon.level + 10), 2.5);
       const trainer = !wildEncounter ? 1.5 : 1;
-      const gain = Math.max(1, Math.floor((baseExp * next.foe.level / 5 * scale + 1) * trainer / participants.length * (pokemon.heldItem === "luckyegg" ? 1.5 : 1)));
+      const shared = next.expShare && !participants.some((row) => row.uid === pokemon.uid) ? .5 : 1;
+      const gain = Math.max(1, Math.floor((baseExp * next.foe.level / 5 * scale + 1) * trainer / participants.length * shared * (pokemon.heldItem === "luckyegg" ? 1.5 : 1)));
       pokemon.exp = Math.min(expAt(pokemon, 100), pokemon.exp + gain);
       next.expGains.push({ uid: pokemon.uid, name: pokemon.nickname, gain, level: pokemon.level });
       addLog(next, pokemon.nickname + "이(가) 경험치 " + gain + "을 얻었다!");
@@ -1172,16 +1180,9 @@ function PokemonBattle({
         addLog(next, trainerName + "가 " + next.foe.nickname + "을(를) 내보냈다!");
       } else next.outcome = "victory";
     } else {
-      const replacement = next.owned.find((pokemon) => !pokemon.inBox && pokemon.hp > 0);
-      if (replacement) {
-        next.activeUid = replacement.uid;
-        replacement.stages = {};
-        replacement.enteredTurn = next.turn;
-        applyEntryHazards(next, replacement, "own");
-        enterAbility(next, replacement, "own");
-        if (!next.participants.includes(replacement.uid)) next.participants.push(replacement.uid);
-        addLog(next, "가라, " + replacement.nickname + "!");
-      } else next.outcome = "defeat";
+      next.pendingSwitch = next.owned.some((pokemon) => !pokemon.inBox && pokemon.hp > 0);
+      if (next.pendingSwitch) addLog(next, "다음 포켓몬을 선택해 주세요.");
+      else next.outcome = "defeat";
     }
   };
   const applyEntryHazards = (next, pokemon, side) => {
@@ -1493,10 +1494,10 @@ function PokemonBattle({
       !(["fly", "bounce"].includes(defender.chargingMove) && ["thunder", "hurricane", "gust", "twister"].includes(moveId)) &&
       !(defender.chargingMove === "dig" && ["earthquake", "magnitude"].includes(moveId));
     const missed = invulnerable || !weatherPerfect && attacker.lockOnUid !== defender.uid && attacker.ability !== "noguard" && defender.ability !== "noguard" && Math.random() * 100 >= hitRate;
-    setAnim({ kind: "attack", side, stage: "lunge", type: idOf(move.type), category: move.category, moveId, stamp });
-    await delay(270);
-    if (!missed) setAnim({ kind: "attack", side, stage: "impact", type: idOf(move.type), category: move.category, moveId, stamp });
-    await delay(missed ? 160 : 390);
+    setAnim({ kind: "attack", side, stage: move.category === "Status" ? "status" : "lunge", type: idOf(move.type), category: move.category, moveId, stamp });
+    await delay(move.category === "Status" ? 450 : 360);
+    if (!missed && move.category !== "Status") setAnim({ kind: "attack", side, stage: "impact", type: idOf(move.type), category: move.category, moveId, stamp });
+    await delay(missed ? 180 : move.category === "Status" ? 130 : 360);
     addLog(next, attacker.nickname + "의 " + moveName(moveId) + "!");
     if (["futuresight", "doomdesire"].includes(moveId)) {
       const targetSide = side === "own" ? "foe" : "own";
@@ -1552,6 +1553,8 @@ function PokemonBattle({
       if (targetSelf && defender.snatchTurn === next.turn) { defender.snatchTurn = 0; addLog(next, defender.nickname + "이(가) 기술을 가로챘다!"); applyStatusMove(next, defender, attacker, moveId, move, side === "own" ? "foe" : "own"); }
       else applyStatusMove(next, attacker, defender, moveId, move, side);
       attacker.lastMoveFailed = false;
+      showBattleFrame(next);
+      await delay(220);
       setAnim(null);
       if (attacker.hp <= 0) handleFaint(next, side === "own" ? "foe" : "own", attacker);
       return;
@@ -1716,6 +1719,8 @@ function PokemonBattle({
     if (["dragontail", "circlethrow"].includes(moveId) && damageDealt) defender.forceSwitch = true;
     if (RECHARGE_MOVES.has(moveId) && damageDealt) attacker.rechargeUntil = next.turn + 1;
     if (idOf(move.type) === "fire" && defender.status === "frz" && damageDealt) { defender.status = "NORMAL"; addLog(next, defender.nickname + "의 얼음이 녹았다!"); }
+    showBattleFrame(next);
+    await delay(430);
     setAnim(null);
     if (defender.hp <= 0 && defender.grudgeTurn === next.turn) { const index = attacker.moves.indexOf(moveId); if (index >= 0) attacker.pp[index] = 0; addLog(next, "원념으로 " + moveName(moveId) + "의 PP가 0이 됐다!"); }
     const bonded = defender.hp <= 0 && defender.destinyBondTurn >= next.turn && attacker.hp > 0;
@@ -1735,7 +1740,7 @@ function PokemonBattle({
     const updatedAt = Date.now();
     const persistedOwned = next.owned.map(baseForm);
     if (next.outcome) next.owned = persistedOwned;
-    const nextSnapshot = { version: 1, owned: persistedOwned, activeUid: next.activeUid, updatedAt };
+    const nextSnapshot = { version: 1, owned: persistedOwned, activeUid: next.activeUid, expShare: !!next.expShare, updatedAt };
     const statusBag = typeof PokemonStatusBW !== "undefined" ? PokemonStatusBW.runtimeBag : null;
     if ([bag, statusBag && statusBag.items, bagMeta && bagMeta.items]
       .some((items) => items && items.keystone > 0)) nextBag.keystone = 1;
@@ -1762,7 +1767,7 @@ function PokemonBattle({
     if (typeof PokemonStatusBW !== "undefined" && typeof PokemonStatusBW.acceptBattleState === "function") {
       PokemonStatusBW.acceptBattleState(nextSnapshot, nextBagMeta);
     }
-    setMenu("main");
+    setMenu(next.pendingSwitch ? "party" : "main");
     setMegaReady(false);
     setNotice("");
     try {
@@ -1829,6 +1834,7 @@ function PokemonBattle({
   const takeAction = async (kind, argument) => {
     if (sendOut) return;
     if (!catalog || !game || !meta || !bag || game.outcome || (game.pendingLearn || []).length || (game.pendingEvolutions || []).length || busy.current) return;
+    if (game.pendingSwitch && kind !== "switch") return;
     busy.current = true;
     try {
       const next = cloneGame();
@@ -1880,6 +1886,21 @@ function PokemonBattle({
         return;
       } else if (kind === "switch") {
         const replacement = next.owned.find((pokemon) => pokemon.uid === argument && !pokemon.inBox && pokemon.hp > 0);
+        if (next.pendingSwitch) {
+          if (!replacement) return;
+          next.pendingSwitch = false;
+          next.activeUid = replacement.uid;
+          replacement.stages = {};
+          replacement.enteredTurn = next.turn;
+          addLog(next, "가라, " + replacement.nickname + "!");
+          applyEntryHazards(next, replacement, "own");
+          if (replacement.hp > 0) {
+            enterAbility(next, replacement, "own");
+            if (!next.participants.includes(replacement.uid)) next.participants.push(replacement.uid);
+          } else handleFaint(next, "foe", replacement);
+          await saveGame(next, nextBag);
+          return;
+        }
         if (!replacement || replacement.uid === next.activeUid || current.trappedUntil >= next.turn) return;
         const enemyMoveSlot = enemySlot(next);
         const pursuit = moveInfo(enemyMoveSlot < 0 ? "struggle" : next.foe.moves[enemyMoveSlot]).id === "pursuit";
@@ -1980,7 +2001,7 @@ function PokemonBattle({
         const pokemon = makePokemon(raw, "starter-" + index);
         return pokemon ? { ...pokemon, stages: previous[pokemon.uid] && previous[pokemon.uid].stages || {} } : null;
       }).filter(Boolean);
-      return { ...current, owned: updated, activeUid: incoming.activeUid || current.activeUid };
+      return { ...current, owned: updated, activeUid: incoming.activeUid || current.activeUid, expShare: !!incoming.expShare };
     });
   };
   const sprite = (pokemon, back, style) => {
@@ -2015,13 +2036,18 @@ function PokemonBattle({
     const expFloor = Number(pokemon.expFloor) || 0;
     const nextExp = Number(pokemon.nextExp) || expFloor;
     const expRatio = pokemon.level >= 100 ? 1 : Math.max(0, Math.min(1, ((Number(pokemon.exp) || 0) - expFloor) / Math.max(1, nextExp - expFloor)));
-    return <div style={{ position: "absolute", zIndex: 3, width: "min(42%,220px)", padding: 8,
+    return <div key={pokemon.uid} style={{ position: "absolute", zIndex: 3, width: "min(42%,220px)", padding: 8,
       border: "3px solid #334254", background: "#f7f3e6", boxShadow: "3px 3px 0 #1c2a38", color: "#24313e", fontSize: 11, fontWeight: 900, ...style }}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 4 }}><span>{pokemon.nickname}</span><span>Lv.{pokemon.level}</span></div>
       <div style={{ marginTop: 6, border: "2px solid #344354", background: "#aeb6ae", height: 8 }}>
-        <div style={{ width: (ratio * 100) + "%", height: "100%", background: color }} />
+        <div style={{ width: (ratio * 100) + "%", height: "100%", background: color, transition: "width .42s steps(12,end), background .2s" }} />
       </div>
-      <div style={{ marginTop: 3, textAlign: "right" }}>HP {pokemon.hp}/{maxHp}</div>
+      <div style={{ marginTop: 3, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <span>{({ par: "마비", slp: "잠듦", brn: "화상", psn: "독", tox: "맹독", frz: "얼음" })[idOf(pokemon.status)] &&
+          <span style={{ display: "inline-block", padding: "1px 4px", color: "#fff", background: ({ par: "#b58a2b", slp: "#72819b", brn: "#bd663e", psn: "#9261a4", tox: "#78518e", frz: "#5792ae" })[idOf(pokemon.status)] }}>
+            {({ par: "마비", slp: "잠듦", brn: "화상", psn: "독", tox: "맹독", frz: "얼음" })[idOf(pokemon.status)]}</span>}</span>
+        <span>HP {pokemon.hp}/{maxHp}</span>
+      </div>
       {showExp && <div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 5, fontSize: 8 }}>
         <span>EXP</span>
         <div style={{ flex: 1, height: 5, border: "1px solid #344354", background: "#b8c2c5" }}>
@@ -2058,6 +2084,7 @@ function PokemonBattle({
 @keyframes pbSlash{0%{opacity:0;transform:translate(-24px,-24px) rotate(-45deg) scale(.3)}45%{opacity:1;transform:translate(0,0) rotate(-45deg) scale(1.2)}100%{opacity:0;transform:translate(18px,18px) rotate(-45deg) scale(1.6)}}
 @keyframes pbFxTravelOwn{0%{left:22%;top:72%;opacity:0;transform:scale(.45)}25%{opacity:1}100%{left:68%;top:34%;opacity:1;transform:scale(1)}}
 @keyframes pbFxTravelFoe{0%{left:68%;top:34%;opacity:0;transform:scale(.45)}25%{opacity:1}100%{left:22%;top:72%;opacity:1;transform:scale(1)}}
+@keyframes pbStatusAura{0%{opacity:0;transform:translate(-50%,-50%) scale(.45)}35%{opacity:.9;transform:translate(-50%,-50%) scale(1.15)}100%{opacity:0;transform:translate(-50%,-50%) scale(1.6)}}
 @keyframes pbShake{0%,100%{transform:translateX(0) rotate(0)}25%{transform:translateX(-10px) rotate(-17deg)}75%{transform:translateX(10px) rotate(17deg)}}
 @keyframes pbThrow{0%{left:16%;top:73%;transform:scale(.6) rotate(-90deg)}48%{left:43%;top:18%;transform:scale(.9) rotate(100deg)}100%{left:68%;top:40%;transform:scale(1) rotate(360deg)}}
 @keyframes pbCapturePulse{0%{opacity:0;transform:scale(.25)}45%{opacity:.85;transform:scale(1)}100%{opacity:0;transform:scale(1.5)}}
@@ -2122,20 +2149,29 @@ function PokemonBattle({
       <div style={{ position: "absolute", top: 190, right: "6%", width: "35%", height: 20, borderRadius: "50%", background: "#678c62" }} />
       {sprite(foe, false, { position: "absolute", top: 64, right: "9%", width: "35%", height: 150,
         opacity: sendOut === "trainer" || sendOut === "throw" || anim && anim.kind === "capture" && anim.stage !== "throw" && anim.stage !== "breakout" ? 0 : 1,
-        animation: sendOut === "reveal" ? "pbFoeAppear .45s steps(4) both" : anim && anim.kind === "attack" && anim.side === "foe" && anim.stage === "lunge" ? "pbLungeFoe .27s ease-in-out" : anim && anim.kind === "attack" && anim.side === "own" && anim.stage === "impact" ? "pbFlash .38s steps(2)" : "none" })}
+        animation: sendOut === "reveal" ? "pbFoeAppear .45s steps(4) both" : anim && anim.kind === "attack" && anim.side === "foe" && anim.stage === "lunge" ? "pbLungeFoe .36s ease-in-out" : anim && anim.kind === "attack" && anim.side === "own" && anim.stage === "impact" ? "pbFlash .42s steps(2)" : "none" })}
       {own && <>
         <div style={{ position: "absolute", bottom: 44, left: "3%", width: "45%", height: 28, borderRadius: "50%", background: "#63885e" }} />
         {sprite(own, true, { position: "absolute", bottom: 52, left: "4%", width: "43%", height: 180,
-          animation: anim && anim.kind === "attack" && anim.side === "own" && anim.stage === "lunge" ? "pbLungeOwn .27s ease-in-out" : anim && anim.kind === "attack" && anim.side === "foe" && anim.stage === "impact" ? "pbFlash .38s steps(2)" : "none" })}
+          animation: anim && anim.kind === "attack" && anim.side === "own" && anim.stage === "lunge" ? "pbLungeOwn .36s ease-in-out" : anim && anim.kind === "attack" && anim.side === "foe" && anim.stage === "impact" ? "pbFlash .42s steps(2)" : "none" })}
         {hpPanel(own, { bottom: 12, right: 12 }, true)}
       </>}
+      {anim && anim.kind === "attack" && <div style={{ position: "absolute", zIndex: 6, top: 8, left: "50%", transform: "translateX(-50%)",
+        padding: "5px 10px", border: "2px solid #31445a", background: anim.category === "Status" ? "#e8e0fa" : "#fff5d6",
+        color: "#24313e", fontSize: 11, fontWeight: 900, whiteSpace: "nowrap", boxShadow: "2px 2px 0 #233" }}>
+        {anim.side === "own" ? "우리 편" : "상대"} · {moveName(anim.moveId)} {anim.category === "Status" ? "◇ 변화" : "⚔ 공격"}
+      </div>}
+      {anim && anim.kind === "attack" && anim.stage === "status" && <div key={anim.stamp} style={{
+        position: "absolute", zIndex: 5, left: anim.side === "own" ? "24%" : "75%", top: anim.side === "own" ? "68%" : "35%",
+        width: 100, height: 100, borderRadius: "50%", border: "5px solid #c8a9ef", background: "radial-gradient(circle,#e7d7ff99,#9b69d333 50%,transparent 70%)",
+        boxShadow: "0 0 22px #cba8fc", pointerEvents: "none", animation: "pbStatusAura .58s ease-out both" }} />}
       {anim && anim.kind === "attack" && anim.stage === "lunge" && anim.category === "Special" &&
         effectLayers(anim).slice(0, 2).map((fx, index) => <img
           key={anim.stamp + "travel" + index} src={ROOT + "fx/" + fx + ".png"} alt=""
           onError={(event) => { if (!event.currentTarget.src.endsWith("/fx/impact.png")) event.currentTarget.src = ROOT + "fx/impact.png"; }}
           style={{ position: "absolute", zIndex: 4, left: anim.side === "own" ? "68%" : "22%", top: anim.side === "own" ? "34%" : "72%",
             width: 52 + index * 14, height: 52 + index * 14, objectFit: "contain", imageRendering: "pixelated", pointerEvents: "none",
-            animation: (anim.side === "own" ? "pbFxTravelOwn" : "pbFxTravelFoe") + " .27s ease-out both",
+            animation: (anim.side === "own" ? "pbFxTravelOwn" : "pbFxTravelFoe") + " .36s ease-out both",
             animationDelay: index * 65 + "ms" }} />)}
       {anim && anim.kind === "attack" && anim.stage === "impact" &&
         effectLayers(anim).map((fx, index) => <img
@@ -2144,7 +2180,7 @@ function PokemonBattle({
           style={{ position: "absolute", zIndex: 4, left: "calc(" + (anim.side === "own" ? "68%" : "22%") + " + " + ((index % 2 ? 1 : -1) * index * 12) + "px)",
             top: "calc(" + (anim.side === "own" ? "34%" : "72%") + " + " + (index * 9) + "px)",
             width: 82 + index * 12, height: 82 + index * 12, objectFit: "contain", imageRendering: "pixelated", pointerEvents: "none",
-            animation: (anim.category === "Physical" ? "pbSlash" : "pbImpact") + " .32s ease-out both",
+            animation: (anim.category === "Physical" ? "pbSlash" : "pbImpact") + " .36s ease-out both",
             animationDelay: index * 65 + "ms" }} />)}
       {anim && anim.kind === "capture" && anim.stage !== "breakout" && <img key={anim.stamp}
         src={ROOT + "fx/pokeball.png"} alt="몬스터볼" style={{
@@ -2221,7 +2257,7 @@ function PokemonBattle({
         </div>
       </div>}
       {!own && !game.outcome && <div style={{ marginBottom: 8, fontSize: 11 }}>출전할 수 있는 보유 포켓몬이 없습니다. 첫 조우에는 initialParty로 스타팅 포켓몬을 전달해 주세요.</div>}
-      {!game.outcome && !learnRequest && !evolutionEvent && menu === "main" && <div style={{ display: "grid", gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: 8 }}>
+      {!game.outcome && !learnRequest && !evolutionEvent && !game.pendingSwitch && menu === "main" && <div style={{ display: "grid", gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: 8 }}>
         {button("⚔ 싸운다", () => setMenu("moves"), "#d87662", !own)}
         {button("◉ 보유 포켓몬 " + game.owned.length, () => setMenu("party"), "#75a77b", !game.owned.length)}
         {button("▣ 가방 " + itemCount, () => setMenu("bag"), "#dcad62", !own)}
@@ -2233,7 +2269,7 @@ function PokemonBattle({
           megaAvailability(own, game).option ? "✦ 메가진화 · 기술 선택" : "✦ 메가진화 · " + megaAvailability(own, game).reason,
           () => { setMegaReady(true); setMenu("moves"); }, "#ad76c5", !megaAvailability(own, game).option)}</div>
       </div>}
-      {!game.outcome && !learnRequest && !evolutionEvent && menu === "moves" && own && <>
+      {!game.outcome && !learnRequest && !evolutionEvent && !game.pendingSwitch && menu === "moves" && own && <>
         {button(megaAvailability(own, game).option
           ? megaReady ? "✓ 메가진화 준비됨 · 아래 기술을 선택" : "✦ 메가진화"
           : "✦ 메가진화 · " + megaAvailability(own, game).reason,
@@ -2248,14 +2284,14 @@ function PokemonBattle({
         </div>
         <div style={{ marginTop: 8 }}>{button("← 돌아가기", () => { setMegaReady(false); setMenu("main"); })}</div>
       </>}
-      {!game.outcome && !learnRequest && !evolutionEvent && menu === "forms" && own && <>
+      {!game.outcome && !learnRequest && !evolutionEvent && !game.pendingSwitch && menu === "forms" && own && <>
         <div style={{ fontSize: 11, marginBottom: 7 }}>폼을 고르세요. 변경은 이 턴에 한 번만 가능합니다.</div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: 7, maxHeight: 220, overflowY: "auto" }}>
           {formOptions(own).map((id) => button(localizedName({ species: id }), () => takeAction("form", id), "#6a9bbb", id === own.species))}
         </div>
         <div style={{ marginTop: 8 }}>{button("← 돌아가기", () => setMenu("main"))}</div>
       </>}
-      {!game.outcome && !learnRequest && !evolutionEvent && menu === "bag" && <>
+      {!game.outcome && !learnRequest && !evolutionEvent && !game.pendingSwitch && menu === "bag" && <>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: 8 }}>
           {Object.keys(ITEM).map((id) => button(ITEM[id].name + " ×" + bag[id],
             () => ITEM[id].group === "ball" ? takeAction("capture", id) : setMenu("target:" + id),
@@ -2264,7 +2300,7 @@ function PokemonBattle({
         </div>
         <div style={{ marginTop: 8 }}>{button("← 돌아가기", () => setMenu("main"))}</div>
       </>}
-      {!game.outcome && !learnRequest && !evolutionEvent && menu.startsWith("target:") && <>
+      {!game.outcome && !learnRequest && !evolutionEvent && !game.pendingSwitch && menu.startsWith("target:") && <>
         <div style={{ fontSize: 11, marginBottom: 7 }}>{ITEM[menu.slice(7)].name}을(를) 사용할 포켓몬</div>
         <div style={{ display: "grid", gap: 6 }}>
           {game.owned.map((pokemon) => button(pokemon.nickname + " · HP " + pokemon.hp + "/" + statOf(pokemon, "hp"),
@@ -2273,15 +2309,16 @@ function PokemonBattle({
         </div>
         <div style={{ marginTop: 8 }}>{button("← 가방", () => setMenu("bag"))}</div>
       </>}
-      {!game.outcome && !learnRequest && !evolutionEvent && menu === "party" && <>
+      {!game.outcome && !learnRequest && !evolutionEvent && (menu === "party" || game.pendingSwitch) && <>
+        {game.pendingSwitch && <div style={{ marginBottom: 8, padding: 7, border: "2px solid #d87662", background: "#fff5d6", fontWeight: 900 }}>출전할 포켓몬을 선택하세요.</div>}
         <div style={{ maxHeight: 200, overflowY: "auto", display: "grid", gap: 7 }}>
           {game.owned.filter((pokemon) => !pokemon.inBox).map((pokemon) => <React.Fragment key={pokemon.uid}>{button(
             <span>{pokemon.nickname} · Lv.{pokemon.level} · HP {pokemon.hp}/{statOf(pokemon, "hp")}
               <small style={{ display: "block", marginTop: 3 }}>IV {STATS.map((key) => pokemon.ivs[key]).join("/")} · EV {STATS.map((key) => pokemon.evs[key]).join("/")} · {pokemon.nature}</small>
-            </span>, () => takeAction("switch", pokemon.uid), COLORS[idOf(info(pokemon).types[0])], pokemon.hp <= 0 || pokemon.uid === game.activeUid
+            </span>, () => takeAction("switch", pokemon.uid), COLORS[idOf(info(pokemon).types[0])], pokemon.hp <= 0 || !game.pendingSwitch && pokemon.uid === game.activeUid
           )}</React.Fragment>)}
         </div>
-        <div style={{ marginTop: 8 }}>{button("← 돌아가기", () => setMenu("main"))}</div>
+        {!game.pendingSwitch && <div style={{ marginTop: 8 }}>{button("← 돌아가기", () => setMenu("main"))}</div>}
       </>}
       {game.outcome && !learnRequest && !evolutionEvent && <div style={{ fontSize: 11, lineHeight: 1.6 }}>
         배틀 종료 · 보유 {game.owned.length}마리 · 기록된 HP/PP/IV/EV는 다음 조우에 이어집니다.
