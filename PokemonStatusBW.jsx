@@ -186,7 +186,7 @@ function PokemonStatusBW({
         ...(row[13] ? { inBox: true } : {}),
         ...(row[14] ? { gender: row[14] } : {}),
         ...(row[15] ? { status: row[15] } : {}), ...(row[16] ? { heldItem: row[16] } : {}),
-        ...(row[17] ? { ability: row[17] } : {}) };
+        ...(row[17] ? { ability: row[17] } : {}), ...(row[18] ? { shiny: true } : {}) };
     }).filter(Boolean);
     if (!owned.length) return null;
     const time = Number(legacy ? data.updatedAt : data.t) || 0;
@@ -207,7 +207,8 @@ function PokemonStatusBW({
     p: (state.owned || []).map((pokemon) => [pokemon.species, pokemon.level, pokemon.uid, pokemon.hp, pokemon.exp,
       pokemon.nickname, pokemon.nature, pokemon.moves, pokemon.pp,
       STATS.map((key) => pokemon.ivs && pokemon.ivs[key] != null ? pokemon.ivs[key] : 31),
-      STATS.map((key) => pokemon.evs && pokemon.evs[key] || 0), pokemon.maxHp, pokemon.moveNames, pokemon.inBox ? 1 : 0, pokemon.gender || "", pokemon.status || "", pokemon.heldItem || "", pokemon.ability || ""]),
+      STATS.map((key) => pokemon.evs && pokemon.evs[key] || 0), pokemon.maxHp, pokemon.moveNames, pokemon.inBox ? 1 : 0, pokemon.gender || "", pokemon.status || "", pokemon.heldItem || "", pokemon.ability || "",
+      ...(pokemon.shiny ? [1] : [])]),
     a: state.activeUid || "", i: Object.fromEntries(Object.entries(bagState.items || {}).filter(([, count]) => Number(count) > 0)), m: bagState.money == null ? 0 : bagState.money,
     g: bagState.appliedGrants || [], k: bagState.items && bagState.items.keystone > 0 ? 1 : 0, x: state.expShare ? 1 : 0,
     t: Math.max(Number(state.updatedAt) || 0, Number(bagState.updatedAt) || 0) || Date.now()
@@ -277,7 +278,7 @@ function PokemonStatusBW({
       const dexNum = /^\d+$/.test(species) ? Number(species) : POKEMON_STATUS_DATA.index[species] || (POKEMON_STATUS_DATA.baseIds.findIndex((id) => species.startsWith(id)) + 1);
       const speciesNameKo = POKEMON_STATUS_DATA.forms[species] || raw.speciesNameKo || POKEMON_STATUS_DATA.names[dexNum - 1] || raw.species || "포켓몬";
       const nickname = raw.nickname && idOf(raw.nickname) !== species && raw.nickname !== POKEMON_STATUS_DATA.names[dexNum - 1] ? raw.nickname : speciesNameKo;
-      const pokemon = { ...raw, uid: String(raw.uid || "starter-" + index), speciesNameKo, nickname, nature: NATURES[raw.nature] ? raw.nature : "Hardy", heldItem: idOf(raw.heldItem || raw.item || ""),
+      const pokemon = { ...raw, uid: String(raw.uid || "starter-" + index), speciesNameKo, nickname, shiny: raw.shiny === true || raw.shiny === 1 || raw.shiny === "true", nature: NATURES[raw.nature] ? raw.nature : "Hardy", heldItem: idOf(raw.heldItem || raw.item || ""),
         ability: idOf(raw.ability || POKEMON_STATUS_ZA_ABILITIES[species] || POKEMON_STATUS_ABILITY_DEFAULTS[dexNum - 1] || "") };
       const allowedAbilities = abilityOptions(pokemon);
       if (allowedAbilities.length && !allowedAbilities.some((row) => row.id === pokemon.ability)) pokemon.ability = allowedAbilities[0].id;
@@ -356,6 +357,12 @@ function PokemonStatusBW({
     // Z-A pixel fallback: PokéAPI sprites, credited to Kyledove / DoveKyle.
     const zaNumber = POKEMON_STATUS_ZA_SPRITE_IDS[speciesId];
     const urls = [
+      ...(pokemon.shiny ? [
+        ...exactIds.flatMap((id) => [ROOT + "gen5ani-shiny/" + id + ".gif", ROOT + "gen5-shiny/" + id + ".png",
+          ROOT + "ani-shiny/" + id + ".gif", ROOT + "dex-shiny/" + id + ".png"]),
+        formSpriteId === baseId && dexNum > 0 && dexNum <= 649 ? pokeRoot + "versions/generation-v/black-white/shiny/" + dexNum + ".png" : "",
+        formSpriteId === baseId && dexNum > 0 ? pokeRoot + "shiny/" + dexNum + ".png" : ""
+      ] : []),
       formSpriteId === baseId && dexNum > 0 && dexNum <= 649 ? pokeRoot + "versions/generation-v/black-white/" + dexNum + ".png" : "",
       ...exactIds.flatMap((id) => [ROOT + "gen5/" + id + ".png", ROOT + "gen5ani/" + id + ".gif",
         ROOT + "ani/" + id + ".gif", ROOT + "dex/" + id + ".png"]),
@@ -367,7 +374,7 @@ function PokemonStatusBW({
     return <span style={{ display: "inline-flex", width: size, height: size, flexShrink: 0,
       alignItems: "center", justifyContent: "center", background: "#19394d",
       border: "1px solid #63a6bc", boxSizing: "border-box" }}>
-      {urls.length > 0 ? <img key={formSpriteId + ":" + dexNum} src={urls[0]} alt="" data-step="0"
+      {urls.length > 0 ? <img key={formSpriteId + ":" + dexNum + (pokemon.shiny ? ":shiny" : "")} src={urls[0]} alt="" data-step="0"
         onError={(event) => {
           const element = event.currentTarget;
           const next = Number(element.getAttribute("data-step") || 0) + 1;
@@ -715,7 +722,7 @@ function PokemonStatusBW({
             background: (page * 24 + index) % 2 ? "#06304b" : "#075a81", textAlign: "left", cursor: "pointer", fontFamily: "inherit" }}>
             {sprite(pokemon, 52)}
             <span style={{ flex: 1, minWidth: 0, color: "#fff" }}>
-              <strong style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 14 }}>{displayName(pokemon)}</strong>
+              <strong style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 14 }}>{pokemon.shiny && <span title="이로치" style={{ color: "#ffe287" }}>✦ </span>}{displayName(pokemon)}</strong>
               <span style={{ fontSize: 11 }}>Lv.{pokemon.level} · {hp == null ? "HP 계산 전" : hp <= 0 ? "기절" : "HP " + hp + "/" + full}</span>
               <span style={{ display: "block", height: 7, marginTop: 4, border: "2px solid #d6faff", background: "#18313b" }}>
                 <span style={{ display: "block", width: ratio * 100 + "%", height: "100%", background: ratio > .5 ? "#5bd46f" : ratio > .2 ? "#e1c15a" : "#e56c6c" }} />
@@ -733,7 +740,7 @@ function PokemonStatusBW({
       </div>}
     </>}
     {view === "detail" && selected && <div style={{ ...panel, padding: 12 }}>
-      <div style={{ display: "flex", gap: 14, alignItems: "center" }}>{sprite(selected, 92)}<div><strong style={{ fontSize: 19 }}>{displayName(selected)}</strong><div>Lv.{selected.level} · {selected.speciesNameKo || selected.species}</div><div>HP {selected.hp == null ? "계산 전" : selected.hp + "/" + maxHp(selected)} · {(NATURES[selected.nature] || NATURES.Hardy)[0]}</div><div>특성 {POKEMON_STATUS_ABILITY_KO[selected.ability] || selected.ability || "없음"}</div></div></div>
+      <div style={{ display: "flex", gap: 14, alignItems: "center" }}>{sprite(selected, 92)}<div><strong style={{ fontSize: 19 }}>{selected.shiny && <span title="이로치" style={{ color: "#ffe287" }}>✦ </span>}{displayName(selected)}</strong><div>Lv.{selected.level} · {selected.speciesNameKo || selected.species}{selected.shiny ? " · 이로치" : ""}</div><div>HP {selected.hp == null ? "계산 전" : selected.hp + "/" + maxHp(selected)} · {(NATURES[selected.nature] || NATURES.Hardy)[0]}</div><div>특성 {POKEMON_STATUS_ABILITY_KO[selected.ability] || selected.ability || "없음"}</div></div></div>
       {!selected.inBox && <div style={{ marginTop: 10 }}>{button(snapshot.activeUid === selected.uid ? "현재 선두 포켓몬" : "배틀 선두로 지정", () => save(owned, bag, displayName(selected) + "을(를) 선두로 지정했습니다.", { activeUid: selected.uid }), false, snapshot.activeUid === selected.uid || selected.hp === 0)}</div>}
       <div style={{ marginTop: 8 }}>{selected.inBox
         ? button(partyMembers.length >= 6 ? "파티 포켓몬과 교체" : "파티로 꺼내기", () => partyMembers.length >= 6 ? setView("swap") : withdraw(selected.uid))

@@ -134,7 +134,7 @@ function PokemonBattle({
         ...(row[13] ? { inBox: true } : {}),
         ...(row[14] ? { gender: row[14] } : {}),
         ...(row[15] ? { status: row[15] } : {}), ...(row[16] ? { heldItem: row[16] } : {}),
-        ...(row[17] ? { ability: row[17] } : {}) };
+        ...(row[17] ? { ability: row[17] } : {}), ...(row[18] ? { shiny: true } : {}) };
     }).filter(Boolean);
     if (!owned.length) return null;
     const time = Number(legacy ? data.updatedAt : data.t) || 0;
@@ -155,7 +155,8 @@ function PokemonBattle({
     p: (state.owned || []).map((pokemon) => [pokemon.species, pokemon.level, pokemon.uid, pokemon.hp, pokemon.exp,
       pokemon.nickname, pokemon.nature, pokemon.moves, pokemon.pp,
       STATS.map((key) => pokemon.ivs && pokemon.ivs[key] != null ? pokemon.ivs[key] : 31),
-      STATS.map((key) => pokemon.evs && pokemon.evs[key] || 0), pokemon.maxHp, pokemon.moveNames, pokemon.inBox ? 1 : 0, pokemon.gender || "", pokemon.status || "", pokemon.heldItem || "", pokemon.ability || ""]),
+      STATS.map((key) => pokemon.evs && pokemon.evs[key] || 0), pokemon.maxHp, pokemon.moveNames, pokemon.inBox ? 1 : 0, pokemon.gender || "", pokemon.status || "", pokemon.heldItem || "", pokemon.ability || "",
+      ...(pokemon.shiny ? [1] : [])]),
     a: state.activeUid || "", i: Object.fromEntries(Object.entries(bagState.items || {}).filter(([, count]) => Number(count) > 0)), m: bagState.money == null ? 0 : bagState.money,
     g: bagState.appliedGrants || [], k: bagState.items && bagState.items.keystone > 0 ? 1 : 0, x: state.expShare ? 1 : 0,
     t: Math.max(Number(state.updatedAt) || 0, Number(bagState.updatedAt) || 0) || Date.now()
@@ -373,8 +374,10 @@ function PokemonBattle({
   const syncMoveNames = (pokemon) => { pokemon.moveNames = pokemon.moves.map((id) => POKEMON_MOVE_KO[id] || POKEMON_STATUS_MOVE_KO[id] || POKEMON_EXTRA_MOVE_KO[id] || (catalog.moves[id] && catalog.moves[id].name) || id); };
   const makePokemon = (raw, uid, wild = false) => {
     const input = typeof raw === "string" ? { species: raw } : raw || {};
-    const rawSpecies = input.species || input.id || input.dexNo || input.name || "";
-    const species = resolveSpeciesId(rawSpecies);
+    const rawSpecies = String(input.species || input.id || input.dexNo || input.name || "").trim();
+    const shinyPrefix = rawSpecies.match(/^(?:이로치|색이\s*다른|shiny)\s+(.+)$/i);
+    const shinySuffix = rawSpecies.match(/^(.+?)\s*[\[(](?:이로치|shiny)[\])]$/i);
+    const species = resolveSpeciesId(shinyPrefix ? shinyPrefix[1] : shinySuffix ? shinySuffix[1] : rawSpecies);
     const dexEntry = catalog.dex[species];
     if (!dexEntry || !dexEntry.baseStats || dexEntry.num <= 0) return null;
     const level = clamp(input.level == null ? 5 : input.level, 1, 100);
@@ -395,6 +398,9 @@ function PokemonBattle({
       nickname: input.nickname && input.nickname !== dexEntry.name && input.nickname !== POKEMON_PROGRESS_DATA.species[dexEntry.num - 1][0] ? String(input.nickname) : localizedName({ species }),
       speciesNameKo: localizedName({ species }), nature, ivs, evs, moves, inBox: !!input.inBox, gender: input.gender || "", status: input.status || "NORMAL", heldItem: idOf(input.heldItem || input.item || ""),
       ability: dexEntry.abilities.includes(idOf(input.ability)) ? idOf(input.ability) : dexEntry.abilities[0] || "",
+      shiny: input.shiny == null
+        ? !!(shinyPrefix || shinySuffix) || wild && wildEncounter && Math.random() < 1 / 4096
+        : input.shiny === true || input.shiny === 1 || input.shiny === "true",
       formAtTurn: input.formAtTurn && typeof input.formAtTurn === "object" ? input.formAtTurn : null
     };
     const floorExp = expAt(pokemon, level);
@@ -513,7 +519,8 @@ function PokemonBattle({
     }
     const foe = foes[0];
     const active = owned.find((pokemon) => pokemon.uid === (saved && saved.activeUid) && !pokemon.inBox && pokemon.hp > 0) || owned.find((pokemon) => !pokemon.inBox && pokemon.hp > 0);
-    const opening = trainerName ? trainerName + "가 " + foe.nickname + "을(를) 내보냈다!" : foe.nickname + "이(가) 나타났다!";
+    const foeLabel = foe.shiny ? "색이 다른 " + foe.nickname : foe.nickname;
+    const opening = trainerName ? trainerName + "가 " + foeLabel + "을(를) 내보냈다!" : foeLabel + "이(가) 나타났다!";
     foe.enteredTurn = 1;
     if (active) active.enteredTurn = 1;
     const openingGame = { owned, foe, foes, foeIndex: 0, activeUid: active ? active.uid : "", expShare: !!(saved && saved.expShare != null ? saved.expShare : expShareSource && expShareSource.expShare), pendingSwitch: false, participants: active ? [active.uid] : [], expGains: [], pendingLearn: [], pendingEvolutions: [], resultSent: false, rewardApplied: false, rewardMoney: 0, payDayMoney: 0, payDayApplied: false, megaUsed: false, foeMegaUsed: false, turn: 1, outcome: "", log: [opening], battleLog: [{ turn: 1, text: opening }], field: { own: {}, foe: {}, weather: "", weatherUntil: 0, trickRoomUntil: 0 } };
@@ -625,7 +632,7 @@ function PokemonBattle({
     pokemon.ability = entry.abilities[0] || pokemon.ability;
     addLog(next, fromName + "이(가) " + pokemon.speciesNameKo + "(으)로 " + (mega ? "메가진화했다!" : "폼체인지했다!"));
     showForm(next);
-    setMegaAnim({ kind: mega ? "mega" : "form", side, fromSpecies, toSpecies: targetId,
+    setMegaAnim({ kind: mega ? "mega" : "form", side, fromSpecies, toSpecies: targetId, shiny: !!pokemon.shiny,
       fromName, toName: pokemon.nickname, token: Date.now() + Math.random() });
     await delay(mega ? 1600 : 1200);
     setMegaAnim(null);
@@ -831,7 +838,7 @@ function PokemonBattle({
     pokemon.hp = Math.min(pokemon.maxHp, pokemon.hp + pokemon.maxHp - oldMax);
     pokemon.spriteId = String(entry[1].spriteid || entry[1].name || entry[0]).toLowerCase().replace(/[^a-z0-9-]/g, "");
     addLog(next, oldName + "이(가) " + pokemon.speciesNameKo + "(으)로 진화했다!");
-    next.pendingEvolutions.push({ uid: pokemon.uid, fromSpecies, toSpecies: pokemon.species,
+    next.pendingEvolutions.push({ uid: pokemon.uid, fromSpecies, toSpecies: pokemon.species, shiny: !!pokemon.shiny,
       fromName: oldName, toName: pokemon.speciesNameKo, token: pokemon.uid + "-" + pokemon.level + "-" + pokemon.species });
   };
   const awardExperience = (next) => {
@@ -1808,6 +1815,7 @@ function PokemonBattle({
         "|species=" + next.foe.species +
         (trainerName ? "|trainer=" + encodeURIComponent(trainerName) + "|partySize=" + next.foes.length + "|prizeMoney=" + (next.rewardMoney || 0) : "") +
         "|nickname=" + encodeURIComponent(next.foe.nickname) +
+        (next.foe.shiny ? "|shiny=1" : "") +
         "|ownedCount=" + next.owned.length +
         "|turn=" + next.turn + "}}";
       try { sendToAI(message + "\n[POKEMON_SYNC]" + JSON.stringify(packSync(nextSnapshot, nextBagMeta)) + "[/POKEMON_SYNC]", true); }
@@ -1985,7 +1993,7 @@ function PokemonBattle({
           next.owned.filter((pokemon) => pokemon.hp > 0 && next.participants.includes(pokemon.uid)).forEach(awardEvs);
           awardExperience(next);
           next.outcome = "caught";
-          addLog(next, caught.nickname + " 포획 성공! 보유 목록에 추가됐다.");
+          addLog(next, (caught.shiny ? "색이 다른 " : "") + caught.nickname + " 포획 성공! 보유 목록에 추가됐다.");
         } else {
           addLog(next, "포켓몬이 볼에서 빠져나왔다!");
           await attackWith(next, "foe", enemySlot(next));
@@ -2039,15 +2047,22 @@ function PokemonBattle({
     const zaNumber = POKEMON_ZA_SPRITE_IDS[pokemon.species];
     // Z-A pixel fallback: PokéAPI sprites, credited to Kyledove / DoveKyle.
     const pokeRoot = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/";
+    const spriteRoot = ROOT + "sprites/";
     const urls = [
-      ROOT + "sprites/gen5ani" + (back ? "-back" : "") + "/" + spriteId + ".gif",
-      ROOT + "sprites/ani" + (back ? "-back" : "") + "/" + spriteId + ".gif",
-      ROOT + "sprites/gen5" + (back ? "-back" : "") + "/" + spriteId + ".png",
+      ...(pokemon.shiny ? [
+        spriteRoot + "gen5ani" + (back ? "-back" : "") + "-shiny/" + spriteId + ".gif",
+        spriteRoot + "ani" + (back ? "-back" : "") + "-shiny/" + spriteId + ".gif",
+        spriteRoot + "gen5" + (back ? "-back" : "") + "-shiny/" + spriteId + ".png",
+        ...(back ? [] : [spriteRoot + "dex-shiny/" + spriteId + ".png"])
+      ] : []),
+      spriteRoot + "gen5ani" + (back ? "-back" : "") + "/" + spriteId + ".gif",
+      spriteRoot + "ani" + (back ? "-back" : "") + "/" + spriteId + ".gif",
+      spriteRoot + "gen5" + (back ? "-back" : "") + "/" + spriteId + ".png",
       ...(zaNumber && zaNumber !== 10301 ? [pokeRoot + (back ? "back/" : "") + zaNumber + ".png"] : []),
       ...(zaNumber === 10301 ? [pokeRoot + "other/home/10301.png"] : []),
-      ROOT + "sprites/dex/" + spriteId + ".png"
+      spriteRoot + "dex/" + spriteId + ".png"
     ];
-    return <img key={pokemon.uid + ":" + pokemon.species + (back ? ":back" : ":front")} src={urls[0]} alt={pokemon.nickname}
+    return <img key={pokemon.uid + ":" + pokemon.species + (back ? ":back" : ":front") + (pokemon.shiny ? ":shiny" : "")} src={urls[0]} alt={pokemon.nickname}
       onError={(event) => {
         const element = event.currentTarget;
         const next = Number(element.dataset.fallback || 0) + 1;
@@ -2065,7 +2080,7 @@ function PokemonBattle({
     const expRatio = pokemon.level >= 100 ? 1 : Math.max(0, Math.min(1, ((Number(pokemon.exp) || 0) - expFloor) / Math.max(1, nextExp - expFloor)));
     return <div key={pokemon.uid} style={{ position: "absolute", zIndex: 3, width: "min(42%,220px)", padding: 8,
       border: "3px solid #334254", background: "#f7f3e6", boxShadow: "3px 3px 0 #1c2a38", color: "#24313e", fontSize: 11, fontWeight: 900, ...style }}>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 4 }}><span>{pokemon.nickname}</span><span>Lv.{pokemon.level}</span></div>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 4 }}><span>{pokemon.shiny ? "✦ " : ""}{pokemon.nickname}</span><span>Lv.{pokemon.level}</span></div>
       <div style={{ marginTop: 6, border: "2px solid #344354", background: "#aeb6ae", height: 8 }}>
         <div style={{ width: (ratio * 100) + "%", height: "100%", background: color, transition: "width .42s steps(12,end), background .2s" }} />
       </div>
@@ -2226,9 +2241,9 @@ function PokemonBattle({
         alignItems: "center", justifyContent: "center", background: "rgba(28,23,54,.84)" }}>
         <img src={ROOT + "fx/shine.png"} alt="" style={{ position: "absolute", width: 230, height: 230,
           imageRendering: "pixelated", animation: "pbEvoGlow 1.6s ease-in-out forwards" }} />
-        {sprite({ uid: "form-old-" + megaAnim.token, species: megaAnim.fromSpecies, nickname: megaAnim.fromName }, megaAnim.side === "own",
+        {sprite({ uid: "form-old-" + megaAnim.token, species: megaAnim.fromSpecies, nickname: megaAnim.fromName, shiny: megaAnim.shiny }, megaAnim.side === "own",
           { position: "absolute", width: 170, height: 170, animation: "pbEvoOld 1.6s steps(1) forwards" })}
-        {sprite({ uid: "form-new-" + megaAnim.token, species: megaAnim.toSpecies, nickname: megaAnim.toName }, megaAnim.side === "own",
+        {sprite({ uid: "form-new-" + megaAnim.token, species: megaAnim.toSpecies, nickname: megaAnim.toName, shiny: megaAnim.shiny }, megaAnim.side === "own",
           { position: "absolute", width: 170, height: 170, animation: "pbEvoNew 1.6s steps(1) forwards" })}
         {megaAnim.kind === "mega" && <svg viewBox="0 0 370 450" role="img" aria-label="메가진화 마크"
           style={{ position: "absolute", top: 0, width: 125, height: 150, zIndex: 8,
@@ -2255,9 +2270,9 @@ function PokemonBattle({
       {evolutionEvent && <div style={{ position: "absolute", inset: 0, zIndex: 7, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(19,31,52,.88)" }}>
         <img src={ROOT + "fx/shine.png"} alt="" style={{ position: "absolute", width: 220, height: 220,
           imageRendering: "pixelated", animation: "pbEvoGlow 2.2s ease-in-out forwards" }} />
-        {sprite({ uid: "evo-old-" + evolutionEvent.token, species: evolutionEvent.fromSpecies, nickname: evolutionEvent.fromName }, false,
+        {sprite({ uid: "evo-old-" + evolutionEvent.token, species: evolutionEvent.fromSpecies, nickname: evolutionEvent.fromName, shiny: evolutionEvent.shiny }, false,
           { position: "absolute", width: 170, height: 170, objectFit: "contain", animation: "pbEvoOld 2.2s steps(1) forwards" })}
-        {sprite({ uid: "evo-new-" + evolutionEvent.token, species: evolutionEvent.toSpecies, nickname: evolutionEvent.toName }, false,
+        {sprite({ uid: "evo-new-" + evolutionEvent.token, species: evolutionEvent.toSpecies, nickname: evolutionEvent.toName, shiny: evolutionEvent.shiny }, false,
           { position: "absolute", width: 170, height: 170, objectFit: "contain", animation: "pbEvoNew 2.2s steps(1) forwards" })}
       </div>}
       {game.outcome && !learnRequest && !evolutionEvent && <div style={{ position: "absolute", inset: 0, zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(17,28,38,.55)" }}>
