@@ -47,7 +47,7 @@ function PokemonBattle({
   const normalizedScene = explicitScene.replace(/^bg-/, "").replace(/\.(?:png|jpg)$/, "");
   const sceneAliases = { "gen3-arena": "arena", "gen4-indoors": "indoors", "gen4-snow": "snow",
     "dampcave": "cave", "beachshore": "coast", "volcanocave": "volcano", "thunderplains": "thunder" };
-  const sceneHint = String(encounter.location || encounter.place || encounter.biome || "").toLowerCase();
+  const sceneHint = String(encounter.place || encounter.biome || "").toLowerCase();
   const sceneRules = [
     [/심해|해저|deepsea|underwater/, "deepsea"], [/화산|용암|volcano|lava/, "volcano"],
     [/얼음\s*동굴|빙하|icecave/, "icecave"], [/눈|설원|설산|snow|winter/, "snow"],
