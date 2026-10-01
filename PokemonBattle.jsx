@@ -33,15 +33,15 @@ function PokemonBattle({
   const ROOT = "https://play.pokemonshowdown.com/";
   const wildEncounter = trainerParty ? false : encounter.wild == null ? encounter.trainer !== true : encounter.wild !== false;
   const SCENES = {
-    route: ["bg-route.png", "길", "#71865e"], forest: ["bg-forest.png", "숲", "#62815b"],
-    meadow: ["bg-meadow.png", "초원", "#79a16a"], city: ["bg-city.png", "도시", "#888b82"],
-    arena: ["bg-gen3-arena.png", "경기장", "#a99272"], indoors: ["bg-gen4-indoors.png", "실내", "#9b9a91"],
-    cave: ["bg-dampcave.png", "동굴", "#797567"], icecave: ["bg-icecave.png", "얼음 동굴", "#94b5b5"],
-    mountain: ["bg-mountain.png", "산", "#847d67"], snow: ["bg-gen4-snow.png", "설원", "#adc3c2"],
-    desert: ["bg-desert.png", "사막", "#bd9d6a"], beach: ["bg-beach.png", "해변", "#b8a47b"],
-    coast: ["bg-beachshore.png", "바닷가", "#88a8a4"], river: ["bg-river.png", "강가", "#7b9b8d"],
-    deepsea: ["bg-deepsea.png", "심해", "#497884"], volcano: ["bg-volcanocave.png", "화산", "#926b56"],
-    thunder: ["bg-thunderplains.png", "번개 들판", "#887f6e"]
+    route: ["bg-meadow.jpg", "길", "#71865e"], forest: ["bg-forest.jpg", "숲", "#62815b"],
+    meadow: ["bg-meadow.jpg", "초원", "#79a16a"], city: ["bg-city.jpg", "도시", "#888b82"],
+    arena: ["bg-elite4drake.jpg", "경기장", "#a99272"], indoors: ["bg-library.jpg", "실내", "#9b9a91"],
+    cave: ["bg-dampcave.jpg", "동굴", "#797567"], icecave: ["bg-icecave.jpg", "얼음 동굴", "#94b5b5"],
+    mountain: ["bg-skypillar.jpg", "산", "#847d67"], snow: ["bg-icecave.jpg", "설원", "#adc3c2"],
+    desert: ["bg-desert.jpg", "사막", "#bd9d6a"], beach: ["bg-beach.jpg", "해변", "#b8a47b"],
+    coast: ["bg-orassea.jpg", "바닷가", "#88a8a4"], river: ["bg-aquacordetown.jpg", "강가", "#7b9b8d"],
+    deepsea: ["bg-deepsea.jpg", "심해", "#497884"], volcano: ["bg-elite4drake.jpg", "화산", "#926b56"],
+    thunder: ["bg-darkmeadow.jpg", "번개 들판", "#887f6e"]
   };
   const explicitScene = String(encounter.background || background || "").trim().toLowerCase();
   const normalizedScene = explicitScene.replace(/^bg-/, "").replace(/\.(?:png|jpg)$/, "");
@@ -2108,10 +2108,10 @@ function PokemonBattle({
     const expFloor = Number(pokemon.expFloor) || 0;
     const nextExp = Number(pokemon.nextExp) || expFloor;
     const expRatio = pokemon.level >= 100 ? 1 : Math.max(0, Math.min(1, ((Number(pokemon.exp) || 0) - expFloor) / Math.max(1, nextExp - expFloor)));
-    return <div key={pokemon.uid} style={{ position: "absolute", zIndex: 3, width: "min(42%,220px)", boxSizing: "border-box", minWidth: 0, padding: 8,
-      border: "3px solid #334254", background: "#f7f3e6", boxShadow: "3px 3px 0 #1c2a38", color: "#24313e", fontSize: 11, fontWeight: 900, ...style }}>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 4 }}><span>{pokemon.shiny ? "✦ " : ""}{pokemon.nickname}</span><span>Lv.{pokemon.level}</span></div>
-      <div style={{ marginTop: 6, border: "2px solid #344354", background: "#aeb6ae", height: 8 }}>
+    return <div key={pokemon.uid} style={{ position: "absolute", zIndex: 3, width: "min(36%,170px)", boxSizing: "border-box", minWidth: 0, padding: "5px 6px",
+      border: "2px solid #334254", background: "#f7f3e6", boxShadow: "2px 2px 0 #1c2a38", color: "#24313e", fontSize: 9, fontWeight: 900, ...style }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 3 }}><span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{pokemon.shiny ? "✦ " : ""}{pokemon.nickname}</span><span style={{ flexShrink: 0 }}>Lv.{pokemon.level}</span></div>
+      <div style={{ marginTop: 4, border: "1px solid #344354", background: "#aeb6ae", height: 6 }}>
         <div style={{ width: (ratio * 100) + "%", height: "100%", background: color, transition: "width .42s steps(12,end), background .2s" }} />
       </div>
       <div style={{ marginTop: 3, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -2120,7 +2120,7 @@ function PokemonBattle({
             {({ par: "마비", slp: "잠듦", brn: "화상", psn: "독", tox: "맹독", frz: "얼음" })[idOf(pokemon.status)]}</span>}</span>
         <span>HP {pokemon.hp}/{maxHp}</span>
       </div>
-      {showExp && <div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 5, fontSize: 8 }}>
+      {showExp && <div style={{ display: "flex", alignItems: "center", gap: 3, marginTop: 3, fontSize: 7 }}>
         <span>EXP</span>
         <div style={{ flex: 1, height: 5, border: "1px solid #344354", background: "#b8c2c5" }}>
           <div style={{ width: (expRatio * 100) + "%", height: "100%", background: "#4c9de9" }} />
@@ -2204,13 +2204,13 @@ function PokemonBattle({
         <span style={{ color: "#547382", marginRight: 5 }}>T{entry.turn}</span>{entry.text}
       </div>)}
     </div>}
-    <div data-scene={sceneKey} style={{ width: "100%", height: "clamp(220px, 50vw, 350px)", boxSizing: "border-box", position: "relative", overflow: "hidden", imageRendering: "pixelated",
-      backgroundColor: scene[2], backgroundImage: "url(" + ROOT + "fx/" + scene[0] + ")", backgroundSize: "cover", backgroundPosition: "center" }}>
-      {hpPanel(foe, { top: 14, left: 12 })}
+    <div data-scene={sceneKey} style={{ width: "100%", height: "clamp(220px, 50vw, 350px)", boxSizing: "border-box", position: "relative", overflow: "hidden",
+      backgroundColor: scene[2], backgroundImage: "url(" + ROOT + "sprites/gen6bgs/" + scene[0] + ")", backgroundSize: "cover", backgroundPosition: "center" }}>
+      {hpPanel(foe, { top: 8, left: 8 })}
       {!wildEncounter && sendOut && sendOut !== "reveal" && <img
         src={ROOT + "sprites/trainers/" + trainerSprite + ".png"} alt={trainerName}
         onError={(event) => { if (!event.currentTarget.src.endsWith("/acetrainer.png")) event.currentTarget.src = ROOT + "sprites/trainers/acetrainer.png"; }}
-        style={{ position: "absolute", right: "9%", bottom: "42%", width: "min(31%, 150px)", height: "43%",
+        style={{ position: "absolute", right: "10%", bottom: "42%", width: "min(25%, 118px)", height: "36%",
           objectFit: "contain", objectPosition: "center bottom", imageRendering: "pixelated", zIndex: 3,
           animation: sendOut === "trainer" ? "pbTrainerEnter .5s steps(4) both" : "pbTrainerLeave .55s steps(4) both" }} />}
       {!wildEncounter && sendOut === "throw" && <span aria-label="상대 몬스터볼"
@@ -2218,15 +2218,15 @@ function PokemonBattle({
           border: "2px solid #26313e", borderRadius: "50%", zIndex: 4,
           background: "linear-gradient(#d94e48 0 46%,#26313e 46% 54%,#f5f0e5 54% 100%)",
           boxShadow: "0 0 0 2px #fff8", animation: "pbNpcThrow .55s ease-out both" }} />}
-      <div style={{ position: "absolute", bottom: "39%", right: "6%", width: "36%", height: "5%", borderRadius: "50%", background: scene[2], opacity: .75, boxShadow: "0 3px 0 #26313e55" }} />
-      {sprite(foe, false, { position: "absolute", bottom: "42%", right: "9%", width: "min(31%, 150px)", height: "43%",
+      <div style={{ position: "absolute", bottom: "39%", right: "7%", width: "31%", height: "4%", borderRadius: "50%", background: "#1b273788", opacity: .45 }} />
+      {sprite(foe, false, { position: "absolute", bottom: "42%", right: "10%", width: "min(25%, 118px)", height: "36%",
         opacity: sendOut === "trainer" || sendOut === "throw" || anim && anim.kind === "capture" && anim.stage !== "throw" && anim.stage !== "breakout" ? 0 : 1,
         animation: sendOut === "reveal" ? "pbFoeAppear .45s steps(4) both" : anim && anim.kind === "attack" && anim.side === "foe" && anim.stage === "lunge" ? "pbLungeFoe .36s ease-in-out" : anim && anim.kind === "attack" && anim.side === "own" && anim.stage === "impact" ? "pbFlash .42s steps(2)" : "none" })}
       {own && <>
-        <div style={{ position: "absolute", bottom: "12%", left: "3%", width: "45%", height: "7%", borderRadius: "50%", background: scene[2], opacity: .8, boxShadow: "0 4px 0 #26313e55" }} />
-        {sprite(own, true, { position: "absolute", bottom: "14%", left: "4%", width: "min(38%, 185px)", height: "52%",
+        <div style={{ position: "absolute", bottom: "12%", left: "4%", width: "36%", height: "5%", borderRadius: "50%", background: "#1b273788", opacity: .45 }} />
+        {sprite(own, true, { position: "absolute", bottom: "14%", left: "6%", width: "min(31%, 150px)", height: "44%",
           animation: anim && anim.kind === "attack" && anim.side === "own" && anim.stage === "lunge" ? "pbLungeOwn .36s ease-in-out" : anim && anim.kind === "attack" && anim.side === "foe" && anim.stage === "impact" ? "pbFlash .42s steps(2)" : "none" })}
-        {hpPanel(own, { bottom: 12, right: 12 }, true)}
+        {hpPanel(own, { bottom: 8, right: 8 }, true)}
       </>}
       {anim && anim.kind === "attack" && <div style={{ position: "absolute", zIndex: 6, top: 8, left: "50%", transform: "translateX(-50%)",
         padding: "5px 10px", border: "2px solid #31445a", background: anim.category === "Status" ? "#e8e0fa" : "#fff5d6",
