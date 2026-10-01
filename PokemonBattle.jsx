@@ -2108,7 +2108,7 @@ function PokemonBattle({
     const expFloor = Number(pokemon.expFloor) || 0;
     const nextExp = Number(pokemon.nextExp) || expFloor;
     const expRatio = pokemon.level >= 100 ? 1 : Math.max(0, Math.min(1, ((Number(pokemon.exp) || 0) - expFloor) / Math.max(1, nextExp - expFloor)));
-    return <div key={pokemon.uid} style={{ position: "absolute", zIndex: 3, width: "min(42%,220px)", padding: 8,
+    return <div key={pokemon.uid} style={{ position: "absolute", zIndex: 3, width: "min(42%,220px)", boxSizing: "border-box", minWidth: 0, padding: 8,
       border: "3px solid #334254", background: "#f7f3e6", boxShadow: "3px 3px 0 #1c2a38", color: "#24313e", fontSize: 11, fontWeight: 900, ...style }}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 4 }}><span>{pokemon.shiny ? "✦ " : ""}{pokemon.nickname}</span><span>Lv.{pokemon.level}</span></div>
       <div style={{ marginTop: 6, border: "2px solid #344354", background: "#aeb6ae", height: 8 }}>
@@ -2130,7 +2130,7 @@ function PokemonBattle({
     </div>;
   };
   const button = (label, click, color, disabled) => <button type="button" onClick={click} disabled={!!disabled || !!anim || !!sendOut}
-    style={{ minHeight: 48, padding: "7px 9px", border: "3px solid " + (disabled ? "#888" : color || "#68869b"),
+    style={{ minHeight: 48, minWidth: 0, maxWidth: "100%", boxSizing: "border-box", overflowWrap: "anywhere", padding: "7px 9px", border: "3px solid " + (disabled ? "#888" : color || "#68869b"),
       background: disabled ? "#adb2ad" : "#f7f4e8", color: disabled ? "#666" : "#22303c",
       textAlign: "left", fontFamily: "inherit", fontSize: 11, fontWeight: 900,
       boxShadow: "3px 3px 0 #243341", cursor: disabled ? "default" : "pointer" }}>{label}</button>;
@@ -2144,7 +2144,7 @@ function PokemonBattle({
   const learner = learnRequest && game.owned.find((pokemon) => pokemon.uid === learnRequest.uid);
   const itemCount = Object.keys(bag).reduce((sum, id) => sum + (bag[id] || 0), 0);
   const outcomeText = { victory: "승리!", defeat: "패배...", escaped: "도주 성공", caught: "포획 성공!" };
-  return <section style={{ width: "100%", maxWidth: 700, margin: "0 auto", position: "relative", boxSizing: "border-box", border: "5px solid #283a4d",
+  return <section style={{ width: "100%", maxWidth: 700, minWidth: 0, margin: "0 auto", position: "relative", boxSizing: "border-box", overflow: "hidden", overflowWrap: "anywhere", border: "5px solid #283a4d",
     background: "#cfdbd4", color: "#23313d", fontFamily: "monospace", boxShadow: "5px 5px 0 #172631" }}>
     <style>{`@keyframes pbTrainerEnter{0%{opacity:0;transform:translateX(70px)}100%{opacity:1;transform:translateX(0)}}
 @keyframes pbTrainerLeave{0%{opacity:1;transform:translateX(0)}100%{opacity:0;transform:translateX(50px)}}
@@ -2175,7 +2175,7 @@ function PokemonBattle({
           style={{ width: 28, height: 28, imageRendering: "pixelated" }} />
         {trainerName && <span>{trainerName} · {game.foeIndex + 1}/{game.foes.length}</span>}
       </span>
-      <span style={{ display: "flex", alignItems: "center", gap: 7, whiteSpace: "nowrap" }}>
+      <span style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 7, minWidth: 0 }}>
         {bag.keystone > 0 ? "키스톤 ✓ · " : ""}TURN {game.turn}
         <button type="button" aria-expanded={showBattleLog} onClick={() => setShowBattleLog(!showBattleLog)}
           style={{ padding: "4px 7px", border: "2px solid #b2d7e9", background: showBattleLog ? "#f6d97a" : "#e8f4ed", color: "#203343", fontFamily: "inherit", fontSize: 11, fontWeight: 900, cursor: "pointer" }}>
@@ -2204,7 +2204,7 @@ function PokemonBattle({
         <span style={{ color: "#547382", marginRight: 5 }}>T{entry.turn}</span>{entry.text}
       </div>)}
     </div>}
-    <div data-scene={sceneKey} style={{ aspectRatio: "2 / 1", minHeight: 220, maxHeight: 350, position: "relative", overflow: "hidden", imageRendering: "pixelated",
+    <div data-scene={sceneKey} style={{ width: "100%", height: "clamp(220px, 50vw, 350px)", boxSizing: "border-box", position: "relative", overflow: "hidden", imageRendering: "pixelated",
       backgroundColor: scene[2], backgroundImage: "url(" + ROOT + "fx/" + scene[0] + ")", backgroundSize: "cover", backgroundPosition: "center" }}>
       {hpPanel(foe, { top: 14, left: 12 })}
       {!wildEncounter && sendOut && sendOut !== "reveal" && <img
