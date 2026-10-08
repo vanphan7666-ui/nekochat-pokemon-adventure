@@ -2071,26 +2071,32 @@ function PokemonBattle({
   };
   const sprite = (pokemon, back, style) => {
     const entry = info(pokemon);
-    const spriteId = String(entry.spriteid || entry.name || pokemon.species)
-      .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    const spriteKey = (value) => String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "")
       .toLowerCase().replace(/[^a-z0-9-]/g, "").replace(/-mega-([xyz])$/, "-mega$1");
+    const baseSpriteId = entry.baseSpecies ? idOf(entry.baseSpecies) : "";
+    const spriteIds = [...new Set([
+      spriteKey(entry.spriteid || (entry.baseSpecies ? entry.name : pokemon.species)),
+      spriteKey(pokemon.spriteId), spriteKey(entry.name), spriteKey(pokemon.species), baseSpriteId
+    ].filter(Boolean))];
     const zaNumber = POKEMON_ZA_SPRITE_IDS[pokemon.species];
     // Z-A pixel fallback: PokéAPI sprites, credited to Kyledove / DoveKyle.
     const pokeRoot = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/";
     const spriteRoot = ROOT + "sprites/";
     const urls = [
-      ...(pokemon.shiny ? [
-        spriteRoot + "gen5ani" + (back ? "-back" : "") + "-shiny/" + spriteId + ".gif",
-        spriteRoot + "ani" + (back ? "-back" : "") + "-shiny/" + spriteId + ".gif",
-        spriteRoot + "gen5" + (back ? "-back" : "") + "-shiny/" + spriteId + ".png",
-        ...(back ? [] : [spriteRoot + "dex-shiny/" + spriteId + ".png"])
-      ] : []),
-      spriteRoot + "gen5ani" + (back ? "-back" : "") + "/" + spriteId + ".gif",
-      spriteRoot + "ani" + (back ? "-back" : "") + "/" + spriteId + ".gif",
-      spriteRoot + "gen5" + (back ? "-back" : "") + "/" + spriteId + ".png",
+      ...(pokemon.shiny ? spriteIds.flatMap((id) => [
+        spriteRoot + "gen5ani" + (back ? "-back" : "") + "-shiny/" + id + ".gif",
+        spriteRoot + "ani" + (back ? "-back" : "") + "-shiny/" + id + ".gif",
+        spriteRoot + "gen5" + (back ? "-back" : "") + "-shiny/" + id + ".png",
+        ...(back ? [] : [spriteRoot + "dex-shiny/" + id + ".png"])
+      ]) : []),
+      ...spriteIds.flatMap((id) => [
+        spriteRoot + "gen5ani" + (back ? "-back" : "") + "/" + id + ".gif",
+        spriteRoot + "ani" + (back ? "-back" : "") + "/" + id + ".gif",
+        spriteRoot + "gen5" + (back ? "-back" : "") + "/" + id + ".png"
+      ]),
       ...(zaNumber && zaNumber !== 10301 ? [pokeRoot + (back ? "back/" : "") + zaNumber + ".png"] : []),
       ...(zaNumber === 10301 ? [pokeRoot + "other/home/10301.png"] : []),
-      spriteRoot + "dex/" + spriteId + ".png"
+      ...spriteIds.map((id) => spriteRoot + "dex/" + id + ".png")
     ];
     return <img key={pokemon.uid + ":" + pokemon.species + (back ? ":back" : ":front") + (pokemon.shiny ? ":shiny" : "")} src={urls[0]} alt={pokemon.nickname}
       onError={(event) => {
