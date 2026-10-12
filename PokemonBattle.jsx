@@ -141,7 +141,7 @@ function PokemonBattle({
       ? [...(Array.isArray(data.party) ? data.party : []).map((row) => ({ ...row, inBox: false })),
          ...(Array.isArray(data.box) ? data.box : []).map((row) => ({ ...row, inBox: true }))]
       : data.p;
-    if (!Array.isArray(rows) || !rows.length) return null;
+    if (!Array.isArray(rows)) return null;
     const owned = rows.map((row, index) => {
       if (legacy) {
         if (!row || typeof row !== "object" || !row.species) return null;
@@ -166,7 +166,6 @@ function PokemonBattle({
         ...(row[15] ? { status: row[15] } : {}), ...(row[16] ? { heldItem: row[16] } : {}),
         ...(row[17] ? { ability: row[17] } : {}), ...(row[18] ? { shiny: true } : {}) };
     }).filter(Boolean);
-    if (!owned.length) return null;
     const time = Number(legacy ? data.updatedAt : data.t) || 0;
     const rawItems = legacy ? data.bag && (data.bag.items || data.bag) : data.i;
     const hasBag = rawItems && typeof rawItems === "object" || !!(legacy ? data.keyStoneOwned : data.k);
@@ -178,6 +177,7 @@ function PokemonBattle({
       updatedAt: time },
       bag: hasBag ? { version: 1, items,
         money: legacy ? data.money : data.m,
+        gacha: data.q && Array.isArray(data.q[2]) && data.q[2].length === 3 ? { id: data.q[0], createdAt: data.q[1], candidates: (unpackSync({ p: data.q[2] }) || { state: { owned: [] } }).state.owned } : null,
         appliedGrants: Array.isArray(legacy ? data.delivered : data.g) ? (legacy ? data.delivered : data.g) : [],
         updatedAt: time } : null };
   };
@@ -189,6 +189,7 @@ function PokemonBattle({
       ...(pokemon.shiny ? [1] : [])]),
     a: state.activeUid || "", i: Object.fromEntries(Object.entries(bagState.items || {}).filter(([, count]) => Number(count) > 0)), m: bagState.money == null ? 0 : bagState.money,
     g: bagState.appliedGrants || [], k: bagState.items && bagState.items.keystone > 0 ? 1 : 0, x: state.expShare ? 1 : 0,
+    ...(bagState.gacha ? { q: [bagState.gacha.id, bagState.gacha.createdAt, packSync({ owned: bagState.gacha.candidates }, {}).p] } : {}),
     t: Math.max(Number(state.updatedAt) || 0, Number(bagState.updatedAt) || 0) || Date.now()
   });
   const catalog = React.useMemo(() => {
@@ -294,6 +295,8 @@ function PokemonBattle({
     pokeball: { name: "몬스터볼", group: "ball", rate: 1 },
     greatball: { name: "슈퍼볼", group: "ball", rate: 1.5 },
     ultraball: { name: "하이퍼볼", group: "ball", rate: 2 },
+    quickball: { name: "퀵볼", group: "ball", rate: 1 },
+    timerball: { name: "타이마볼", group: "ball", rate: 1 },
     potion: { name: "상처약", group: "heal", amount: 20 },
     superpotion: { name: "좋은상처약", group: "heal", amount: 50 },
     revive: { name: "기력의조각", group: "revive" },
@@ -312,6 +315,15 @@ function PokemonBattle({
     xspeed: { name: "스피드업", group: "boost", stat: "spe" },
     xaccuracy: { name: "명중업", group: "boost", stat: "accuracy" },
   };
+  POKEMON_BATTLE_FORM_ITEMS.forEach(([id, name]) => { ITEM[id] = { name, group: "form" }; });
+  const itemFormTarget = (species, heldItem) => {
+    const family = POKEMON_BATTLE_FORM_ITEMS.find((row) => row[4] === "held" && [row[2], ...row[3]].includes(species));
+    const rule = family && POKEMON_BATTLE_FORM_ITEMS.find((row) => row[4] === "held" && row[0] === heldItem && row[2] === family[2]);
+    return rule ? rule[3][0] : species;
+  };
+  const itemLocked = (pokemon) => POKEMON_BATTLE_FORM_ITEMS.some((row) => row[4] === "held" && row[0] === pokemon.heldItem &&
+    (row[2] === pokemon.species || row[3].includes(pokemon.species))) || POKEMON_BATTLE_MEGA_DATA.some(([base, stone, form]) =>
+      stone && stone === pokemon.heldItem && [base, form].includes(pokemon.species));
   const canUseBattleItem = (item, pokemon, next) => {
     if (!item || !pokemon) return false;
     if (pokemon.embargoUntil >= next.turn) return false;
@@ -407,7 +419,8 @@ function PokemonBattle({
     const rawSpecies = String(input.species || input.id || input.dexNo || input.name || "").trim();
     const shinyPrefix = rawSpecies.match(/^(?:이로치|색이\s*다른|shiny)\s+(.+)$/i);
     const shinySuffix = rawSpecies.match(/^(.+?)\s*[\[(](?:이로치|shiny)[\])]$/i);
-    const species = resolveSpeciesId(shinyPrefix ? shinyPrefix[1] : shinySuffix ? shinySuffix[1] : rawSpecies);
+    const originalSpecies = resolveSpeciesId(shinyPrefix ? shinyPrefix[1] : shinySuffix ? shinySuffix[1] : rawSpecies);
+    const species = itemFormTarget(originalSpecies, idOf(input.heldItem || input.item || ""));
     const dexEntry = catalog.dex[species];
     if (!dexEntry || !dexEntry.baseStats || dexEntry.num <= 0) return null;
     const level = clamp(input.level == null ? 5 : input.level, 1, 100);
@@ -446,6 +459,8 @@ function PokemonBattle({
     pokemon.hp = input.hp == null ? maxHp : clamp(input.hp, 0, maxHp);
     pokemon.maxHp = maxHp;
     pokemon.spriteId = String(dexEntry.spriteid || dexEntry.name || species).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9-]/g, "");
+    const crownMove = species === "zaciancrowned" ? "behemothblade" : species === "zamazentacrowned" ? "behemothbash" : "";
+    if (crownMove) pokemon.moves = pokemon.moves.map((id) => id === "ironhead" ? crownMove : id);
     syncMoveNames(pokemon);
     return pokemon;
   };
@@ -626,7 +641,7 @@ function PokemonBattle({
   const showBattleFrame = (next) => setGame({ ...next,
     owned: next.owned.map((pokemon) => ({ ...pokemon })), foe: { ...next.foe },
     log: [...next.log], battleLog: [...next.battleLog] });
-  const FORM_BASES = "aegislash arceus calyrex castform cherrim cramorant darmanitan deoxys dialga eiscue genesect giratina hoopa keldeo kyurem meloetta minior morpeko necrozma ogerpon palafin palkia rotom shaymin silvally terapagos urshifu wishiwashi zacian zamazenta zygarde".split(" ");
+  const FORM_BASES = "groudon kyogre tornadus thundurus landorus enamorus aegislash arceus calyrex castform cherrim cramorant darmanitan deoxys dialga eiscue genesect giratina hoopa keldeo kyurem meloetta minior morpeko necrozma ogerpon palafin palkia rotom shaymin silvally terapagos urshifu wishiwashi zacian zamazenta zygarde".split(" ");
   const formBase = (pokemon) => {
     const entry = catalog.dex[pokemon.species];
     return entry && entry.baseSpecies ? idOf(entry.baseSpecies) : pokemon.species;
@@ -640,7 +655,9 @@ function PokemonBattle({
       return (id === base || idOf(entry.baseSpecies) === base) &&
         (id !== "zaciancrowned" || pokemon.heldItem === "rustedsword") &&
         (id !== "zamazentacrowned" || pokemon.heldItem === "rustedshield") &&
-        !/(mega|gmax|totem|alola|galar|hisui|paldea|primal|eternamax)/.test(id);
+        (!POKEMON_BATTLE_FORM_ITEMS.some((row) => row[4] === "held" && row[3].includes(id)) || itemFormTarget(base, pokemon.heldItem) === id) &&
+        (id !== base || itemFormTarget(base, pokemon.heldItem) === base) &&
+        !/(mega|gmax|totem|alola|galar|hisui|paldea|eternamax)/.test(id);
     });
   };
   const showForm = (next) => setGame({ ...next,
@@ -779,8 +796,14 @@ function PokemonBattle({
     const random = (85 + Math.floor(Math.random() * 16)) / 100;
     const critical = ["stormthrow", "frostbreath", "flowertrick", "wickedblow", "surgingstrikes"].includes(moveId) || attacker.focusedUntil >= next.turn || Math.random() < 1 / 24 ? 1.5 : 1;
     const held = attacker.embargoUntil >= next.turn ? "" : attacker.heldItem;
+    const formTool = POKEMON_BATTLE_FORM_ITEMS.find((row) => row[0] === held && row[4] === "held");
+    const formBoost = formTool && (held.endsWith("plate") && formTool[5] === type ||
+      formTool[2] === formBase(attacker) && (held.endsWith("mask") ||
+        ["griseousorb", "griseouscore"].includes(held) && ["ghost", "dragon"].includes(type) ||
+        held === "adamantcrystal" && ["steel", "dragon"].includes(type) ||
+        held === "lustrousglobe" && ["water", "dragon"].includes(type))) ? 1.2 : 1;
     const itemPower = held === "muscleband" && physical || held === "wiseglasses" && !physical ? 1.1
-      : held === "expertbelt" && effect > 1 ? 1.2 : 1;
+      : held === "expertbelt" && effect > 1 ? 1.2 : formBoost;
     let abilityPower = 1;
     if (["overgrow", "blaze", "torrent", "swarm"].some((id, index) => attacker.ability === id && type === ["grass", "fire", "water", "bug"][index]) && attacker.hp * 3 <= statOf(attacker, "hp")) abilityPower *= 1.5;
     if (attacker.ability === "technician" && move.basePower <= 60) abilityPower *= 1.5;
@@ -1013,8 +1036,8 @@ function PokemonBattle({
     if (id === "healblock") { defender.healBlockUntil = next.turn + 4; addLog(next, defender.nickname + "은(는) 회복할 수 없다!"); return true; }
     if (id === "torment") { defender.tormentUntil = next.turn + 99; addLog(next, defender.nickname + "은(는) 연속으로 같은 기술을 쓸 수 없다!"); return true; }
     if (id === "spite" || id === "eerieSpell" || id === "eeriespell") { const slot = defender.moves.indexOf(defender.lastMove); if (slot >= 0) { defender.pp[slot] = Math.max(0, defender.pp[slot] - 4); addLog(next, defender.nickname + "의 PP가 줄었다!"); } else addLog(next, "효과가 없었다."); return true; }
-    if (id === "trick" || id === "switcheroo") { const held = attacker.heldItem; attacker.heldItem = defender.heldItem || ""; defender.heldItem = held || ""; addLog(next, "서로의 지닌물건이 바뀌었다!"); return true; }
-    if (id === "bestow") { if (!defender.heldItem && attacker.heldItem) { defender.heldItem = attacker.heldItem; attacker.heldItem = ""; addLog(next, "지닌물건을 건넸다!"); } else addLog(next, "효과가 없었다."); return true; }
+    if (id === "trick" || id === "switcheroo") { if (itemLocked(attacker) || itemLocked(defender)) { addLog(next, "폼을 유지하는 도구는 바꿀 수 없다!"); return true; } const held = attacker.heldItem; attacker.heldItem = defender.heldItem || ""; defender.heldItem = held || ""; addLog(next, "서로의 지닌물건이 바뀌었다!"); return true; }
+    if (id === "bestow") { if (!defender.heldItem && attacker.heldItem && !itemLocked(attacker)) { defender.heldItem = attacker.heldItem; attacker.heldItem = ""; addLog(next, "지닌물건을 건넸다!"); } else addLog(next, "효과가 없었다."); return true; }
     if (id === "recycle") { if (attacker.usedItem) { attacker.heldItem = attacker.usedItem; attacker.usedItem = ""; addLog(next, "지닌물건을 되찾았다!"); } else addLog(next, "효과가 없었다."); return true; }
     if (id === "worryseed" || id === "simplebeam" || id === "entrainment" || id === "skillswap" || id === "roleplay" || id === "gastroacid") { if (id === "skillswap") { const value = attacker.ability; attacker.ability = defender.ability; defender.ability = value; } else if (id === "roleplay") attacker.ability = defender.ability; else if (id === "entrainment") defender.ability = attacker.ability; else defender.ability = { worryseed: "insomnia", simplebeam: "simple", gastroacid: "" }[id]; addLog(next, "특성이 바뀌었다!"); return true; }
     if (id === "soak" || id === "magicpowder" || id === "trickortreat" || id === "forestscurse") { defender.battleTypes = id === "soak" ? ["Water"] : id === "magicpowder" ? ["Psychic"] : [...new Set([...info(defender).types, id === "trickortreat" ? "Ghost" : "Grass"])]; addLog(next, defender.nickname + "의 타입이 바뀌었다!"); return true; }
@@ -1057,7 +1080,7 @@ function PokemonBattle({
     if (id === "watersport" || id === "mudsport") { field[id + "Until"] = next.turn + 4; addLog(next, moveName(id) + "의 효과가 퍼졌다!"); return true; }
     if (id === "venomdrench") { if (["psn", "tox"].includes(idOf(defender.status))) boostStages(next, defender, { atk: -1, spa: -1, spe: -1 }, true); else addLog(next, "효과가 없었다."); return true; }
     if (id === "stuffcheeks") { if (attacker.heldItem && attacker.heldItem.endsWith("berry")) { attacker.usedItem = attacker.heldItem; attacker.heldItem = ""; boostStages(next, attacker, { def: 2 }); healFraction(next, attacker, 1, 4); } else addLog(next, "먹을 열매가 없다."); return true; }
-    if (id === "corrosivegas") { if (defender.heldItem) { defender.heldItem = ""; addLog(next, defender.nickname + "의 지닌물건이 녹았다!"); } else addLog(next, "효과가 없었다."); return true; }
+    if (id === "corrosivegas") { if (defender.heldItem && !itemLocked(defender)) { defender.heldItem = ""; addLog(next, defender.nickname + "의 지닌물건이 녹았다!"); } else addLog(next, "효과가 없었다."); return true; }
     if (id === "powder") { defender.powderTurn = next.turn; addLog(next, defender.nickname + "에게 분진이 붙었다!"); return true; }
     if (id === "takeheart") { attacker.status = "NORMAL"; boostStages(next, attacker, { spa: 1, spd: 1 }); return true; }
     if (id === "electrify") { defender.electrifiedTurn = next.turn; addLog(next, defender.nickname + "의 다음 기술이 전기 타입이 된다!"); return true; }
@@ -1108,7 +1131,7 @@ function PokemonBattle({
     else if (id === "trumpcard") power = [200, 80, 60, 50, 40][Math.min(4, attacker.pp[attacker.moves.indexOf(id)] || 0)];
     else if (id === "punishment") power = Math.min(200, 60 + Object.values(defender.stages || {}).reduce((n, value) => n + Math.max(0, value), 0) * 20);
     else if (id === "naturalgift") power = attacker.heldItem && attacker.heldItem.endsWith("berry") ? 80 : 0;
-    else if (id === "fling") power = attacker.heldItem ? 30 : 0;
+    else if (id === "fling") power = attacker.heldItem && !itemLocked(attacker) ? 30 : 0;
     else if (id === "beatup") power = Math.max(1, (side => side === "own" ? next.owned.filter(p => !p.inBox && p.hp > 0).length : next.foes.filter(p => p.hp > 0).length)(next.owned.includes(attacker) ? "own" : "foe") * 15);
     else if (id === "spitup") power = (attacker.stockpile || 0) * 100;
     else if (id === "echoedvoice") { attacker.echoedVoiceStreak = attacker.previousMove === id ? Math.min(5, (attacker.echoedVoiceStreak || 1) + 1) : 1; power *= attacker.echoedVoiceStreak; }
@@ -1137,7 +1160,7 @@ function PokemonBattle({
     if (fixed != null) return { damage: immune ? 0 : Math.max(0, Math.min(defender.hp, fixed)), effect };
     if (!(power > 0)) return { damage: 0, effect, failed: true };
     const calculated = damageOf(next, attacker, defender, { ...move, basePower: power });
-    if (id === "fling" || id === "naturalgift") { attacker.usedItem = attacker.heldItem; attacker.heldItem = ""; }
+    if ((id === "fling" || id === "naturalgift") && !itemLocked(attacker)) { attacker.usedItem = attacker.heldItem; attacker.heldItem = ""; }
     if (id === "spitup") attacker.stockpile = 0;
     if (id === "finalgambit") attacker.hp = 0;
     return calculated;
@@ -1524,6 +1547,10 @@ function PokemonBattle({
       const types = ["Fighting", "Flying", "Poison", "Ground", "Rock", "Bug", "Ghost", "Steel", "Fire", "Water", "Grass", "Electric", "Psychic", "Ice", "Dragon", "Dark"];
       move = { ...move, type: types[Math.floor(bits * 15 / 63)] };
     }
+    if (moveId === "ivycudgel") {
+      const mask = POKEMON_BATTLE_FORM_ITEMS.find((row) => row[0] === attacker.heldItem && row[2] === "ogerpon");
+      if (mask) move = { ...move, type: mask[5] };
+    }
     if (moveId === "aurawheel" && attacker.species === "morpekohangry") move = { ...move, type: "Dark" };
     if (moveId === "judgment" || moveId === "multiattack" || moveId === "technoblast") {
       const suffix = moveId === "judgment" ? "plate" : moveId === "multiattack" ? "memory" : "drive";
@@ -1668,15 +1695,15 @@ function PokemonBattle({
       next.payDayMoney = (next.payDayMoney || 0) + attacker.level * 5;
       addLog(next, "바닥에 동전이 흩어졌다!");
     }
-    if (damageDealt && moveId === "thief" && !attacker.heldItem && defender.heldItem) {
+    if (damageDealt && moveId === "thief" && !attacker.heldItem && defender.heldItem && !itemLocked(defender)) {
       attacker.heldItem = defender.heldItem; defender.heldItem = "";
       addLog(next, attacker.nickname + "이(가) 상대의 지닌물건을 훔쳤다!");
     }
-    if (damageDealt && moveId === "covet" && !attacker.heldItem && defender.heldItem) {
+    if (damageDealt && moveId === "covet" && !attacker.heldItem && defender.heldItem && !itemLocked(defender)) {
       attacker.heldItem = defender.heldItem; defender.heldItem = "";
       addLog(next, attacker.nickname + "이(가) 상대의 지닌물건을 가져왔다!");
     }
-    if (damageDealt && moveId === "knockoff" && defender.heldItem) {
+    if (damageDealt && moveId === "knockoff" && defender.heldItem && !itemLocked(defender)) {
       defender.usedItem = defender.heldItem; defender.heldItem = "";
       addLog(next, defender.nickname + "의 지닌물건이 떨어졌다!");
     }
@@ -1790,15 +1817,17 @@ function PokemonBattle({
     faintSelfDestruct();
     if (attacker.hp <= 0 && (!next.outcome || bonded)) handleFaint(next, side === "own" ? "foe" : "own", attacker);
   };
-  const catchChance = (foe, ballId) => {
+  const ballRate = (ballId, turn) => ballId === "quickball" ? turn === 1 ? 5 : 1 :
+    ballId === "timerball" ? Math.min(4, 1 + Math.max(0, turn - 1) * .3) : ITEM[ballId] && ITEM[ballId].rate || 1;
+  const catchChance = (foe, ballId, turn = game && game.turn || 1) => {
     const maxHp = statOf(foe, "hp");
     const rate = meta ? meta.catchRate : 45;
     const condition = idOf(foe.status || "normal");
     const statusBonus = ["slp", "frz"].includes(condition) ? 2.5 : ["par", "brn", "psn", "tox"].includes(condition) ? 1.5 : 1;
-    return Math.max(.001, Math.min(.95, ((3 * maxHp - 2 * foe.hp) * rate * (ITEM[ballId] ? ITEM[ballId].rate : 1) * statusBonus) / (3 * maxHp * 255)));
+    return Math.max(.001, Math.min(.95, ((3 * maxHp - 2 * foe.hp) * rate * ballRate(ballId, turn) * statusBonus) / (3 * maxHp * 255)));
   };
   const saveGame = async (next, nextBag) => {
-    const updatedAt = Date.now();
+    const updatedAt = Math.max(Date.now(), (Number(PokemonBattle.runtimeState && PokemonBattle.runtimeState.updatedAt) || 0) + 1, (Number(PokemonBattle.runtimeBag && PokemonBattle.runtimeBag.updatedAt) || 0) + 1);
     const persistedOwned = next.owned.map(baseForm);
     if (next.outcome) next.owned = persistedOwned;
     const nextSnapshot = { version: 1, owned: persistedOwned, activeUid: next.activeUid, expShare: !!next.expShare, updatedAt };
@@ -2008,7 +2037,7 @@ function PokemonBattle({
         const stamp = Date.now() + Math.random();
         setAnim({ kind: "capture", stage: "throw", stamp });
         await delay(650);
-        const caughtNow = Math.random() < catchChance(next.foe, ballId);
+        const caughtNow = Math.random() < catchChance(next.foe, ballId, next.turn);
         const shakeCount = caughtNow ? 3 : 1 + Math.floor(Math.random() * 3);
         for (let shake = 1; shake <= shakeCount; shake++) {
           setAnim({ kind: "capture", stage: "shake", shake, stamp: stamp + shake });
@@ -2371,7 +2400,8 @@ function PokemonBattle({
       </>}
       {!game.outcome && !learnRequest && !evolutionEvent && !game.pendingSwitch && menu === "bag" && <>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: 8 }}>
-          {Object.keys(ITEM).map((id) => button(ITEM[id].name + " ×" + bag[id],
+          {Object.keys(ITEM).filter((id) => ITEM[id].group !== "form").map((id) => button(ITEM[id].name + " ×" + bag[id] +
+            (["quickball", "timerball"].includes(id) ? " · 현재 " + ballRate(id, game.turn).toFixed(1) + "배" : ""),
             () => ITEM[id].group === "ball" ? takeAction("capture", id) : setMenu("target:" + id),
             ITEM[id].group === "ball" ? "#d58970" : "#73a8a0",
             bag[id] <= 0 || ITEM[id].group === "ball" && !wildEncounter))}
@@ -3759,3 +3789,5 @@ const POKEMON_FORM_KO = decodePokemonData(
 
 const POKEMON_MULTI_HITS = {"armthrust":[2,5],"barrage":[2,5],"bonemerang":2,"bonerush":[2,5],"bulletseed":[2,5],"cometpunch":[2,5],"doublehit":2,"doubleironbash":2,"doublekick":2,"doubleslap":[2,5],"dragondarts":2,"dualchop":2,"dualwingbeat":2,"furyattack":[2,5],"furyswipes":[2,5],"geargrind":2,"iciclespear":[2,5],"pinmissile":[2,5],"populationbomb":10,"rockblast":[2,5],"scaleshot":[2,5],"spikecannon":[2,5],"surgingstrikes":3,"tachyoncutter":2,"tailslap":[2,5],"tripleaxel":3,"tripledive":3,"triplekick":3,"twinbeam":2,"twineedle":2,"watershuriken":[2,5]};
 const POKEMON_WEIGHT_KG = [6.9,13,100,8.5,19,90.5,9,22.5,85.5,2.9,9.9,32,3.2,10,29.5,1.8,30,39.5,3.5,18.5,2,38,6.9,65,6,30,12,29.5,7,20,60,9,19.5,62,7.5,40,9.9,19.9,5.5,12,7.5,55,5.4,8.6,18.6,5.4,29.5,30,12.5,0.8,33.3,4.2,32,19.6,76.6,28,32,19,155,12.4,20,54,19.5,56.5,48,19.5,70.5,130,4,6.4,15.5,45.5,55,20,105,300,30,95,36,78.5,6,60,15,39.2,85.2,90,120,30,30,4,132.5,0.1,0.1,40.5,210,32.4,75.6,6.5,60,10.4,66.6,2.5,120,6.5,45,49.8,50.2,65.5,1,9.5,115,120,34.6,35,80,8,25,15,39,34.5,80,54.5,56,40.6,30,44.5,55,88.4,10,235,220,4,6.5,29,24.5,25,36.5,7.5,35,11.5,40.5,59,460,55.4,52.6,60,3.3,16.5,210,122,4,6.4,15.8,100.5,7.9,19,79.5,9.5,25,88.8,6,32.5,21.2,40.8,10.8,35.6,8.5,33.5,75,12,22.5,2,3,1,1.5,3.2,2,15,7.8,13.3,61.5,5.8,8.5,28.5,38,33.9,0.5,1,3,11.5,1.8,8.5,38,8.5,75,26.5,27,2.1,79.5,1,5,28.5,41.5,7.2,125.8,14,64.8,400,7.8,48.7,3.9,118,20.5,54,28,8.8,125.8,35,55,6.5,55.8,5,12,28.5,16,220,50.5,10.8,35,152,33.5,120,32.5,71.2,58,21,48,6,23.5,21.4,75.5,46.8,178,198,187,72,152,202,216,199,5,5,21.6,52.2,2.5,19.5,52,7.6,28,81.9,13.6,37,17.5,32.5,3.6,10,28.4,11.5,31.6,2.6,32.5,55,4,28,59.6,2.3,19.8,9.5,28,6.6,20.2,48.4,1.7,3.6,4.5,39.2,24,46.5,130.5,5.5,12,1.2,16.3,40.5,84,86.4,253.8,2,97,11,32.6,11,11.5,60,120,360,11.2,31.5,15.2,40.2,4.2,4.2,17.7,17.7,2,10.3,80,20.8,88.8,130,398,24,220,80.4,30.6,71.5,5,15,15.3,82,51.3,77.4,1.2,20.6,40.3,52.5,168,154,1.9,23.6,11.5,32.8,21.5,108,23.8,60.4,12.5,68.2,7.4,162,0.8,22,2.3,12.5,15,30.6,100,1,47,14,16.8,256.5,39.5,87.6,150.6,52.5,27,22.6,23.4,8.7,42.1,110.5,102.6,95.2,202.5,550,230,175,205,40,60,352,950,206.5,1.1,60.8,10.2,97,310,6.2,22,55,5.2,23,84.5,2,15.5,24.9,20,31.5,2.2,25.5,9.5,30.5,42,1.2,14.5,31.5,102.5,57,149.5,3.4,6.5,23.3,5.5,38.5,3.9,29.5,33.5,3.3,9.3,6.3,29.9,20.3,1.2,15,5.5,33.3,4.4,27.3,3.9,43.8,0.6,19.2,38,60.5,187,15,13,24.4,1.9,108,20.5,56,95,105,20.2,54,49.5,300,12,61.5,23,44.4,27,7,24,65,50.5,135.5,34,180,140,282.8,128.6,138.6,68,38,51.5,25.5,25.9,42.5,291,34,52,340,106.6,26.6,0.3,0.3,0.3,0.3,683,336,430,420,750,85.6,3.1,1.4,50.5,2.1,320,4,8.1,16,63,9.9,55.5,150,5.9,24.5,94.6,11.6,27,4.1,14.7,61,10.1,37.5,10.5,30.5,11,28,13.5,29,23.3,60.5,2.1,15,29,29.8,79.5,18,102,260,2.1,10.5,8.5,40.4,31,12.5,40,87,4.5,17,62,55.5,51,2.5,7.3,20.5,5.3,58.5,200.5,0.6,6.6,6.6,16.3,18,15.2,33.4,96.3,37.5,92.9,28,14.5,200,11.8,30,14,1.5,76.5,16.5,81,9.5,32,31,107.3,12.5,81.1,5.8,7.5,5.8,18,44,1,8,20.1,5.5,24.2,5.7,41,57.5,19.5,92.5,5,5.9,33,1,10.5,33,135,31.6,0.6,14.3,18.8,110,21,51,81,0.3,22,80.5,9,34.5,3.1,13,34.3,18,36,105.5,8.5,260,148,7.7,25.3,11,20,35.5,139,92,330,10.2,70,94.6,10.5,41,9,39.5,58,33,17.3,50,160,28.8,46,250,260,200,63,61,330,345,68,325,48.5,6.5,82.5,9,29,90,9.4,14.5,39,7,10.9,40,5,42.4,1.7,16,24.5,2.5,8.4,17,13.5,81.5,0.1,0.9,10,31,91,8,136,28,3.5,8.5,2,4.5,53,0.5,15.5,3.5,5,3.5,47,31,96,7.3,81.5,8.3,35.3,6,21,26,270,25.2,225,23.5,21.5,2.2,5.7,2.8,17.5,150.5,3,7,71,5,12.5,99.5,505,8,85,215,203,305,8.8,9,195,1.5,16,36.6,4.3,25,83,7.5,17.5,44,1.2,14.8,26,6,14.2,4.4,10.5,45,7,180,3.4,0.2,0.5,9.2,25,0.3,8,14.5,110,920,4,82,1.5,18.5,1.5,11.5,4.8,22.2,6.8,135,3.2,8.2,21.4,0.3,76,82.8,12,108,70,250,1.2,120.5,100.5,0.3,19.9,212,3.3,0.7,19,185,210,29.7,47,78.2,20.5,18.6,45.5,21.2,0.1,999.9,230,120,55.5,333.6,25,100,999.9,0.1,888,230,80.5,22.2,1.8,150,820,13,44.5,8,800,5,14,90,4.5,9,33,4,11.5,45.2,2.5,6,1.8,16,75,8,19.5,40.8,8.9,19.9,2.2,2.5,6,43,8.5,115.5,13.5,34,12,78,310.5,0.5,1,13,7.6,65.5,18,1,30,11,40,1,120,4,39,0.2,0.4,3.4,4.8,5.1,5.5,12.5,61,46,28,0.4,117,58.2,66.6,0.3,0.5,62,1,3.8,42,520,89,28,3,100,650,190,150,215,175,40,2,11,50,110,210,950,12,105,70,145,200,800,44.5,7.7,95.1,89,290,110,43,60.5,48,4.1,12.2,31.2,9.8,30.7,326.5,6.1,21.5,61.9,10.2,120,4,16.5,1,17.5,2.5,6.5,41,1.8,2.3,10.9,14.9,6.5,11.9,48.2,2.4,16,105,240,10.5,85,62,0.4,113,3.6,38.6,16,61,0.7,27.2,0.6,6,33,58,79,3,15,1,3.5,1.5,90,8.9,59.1,112.8,1.8,5.4,42.9,60.2,60.2,35,120,63,310,8,45,35,15,37,45,700,90,220,8,56,223,160,39.2,120,320,8,21,4,92,60,240,11,380.7,111,36,303,17,30,210,5,30,74.2,152.2,699.7,4.9,380,35,303,240,280,125,4.4,1.1,2.2,92,12.2,30.1,39.8,60,93,590,480,162.5,156,6.5,0.3];
+
+const POKEMON_BATTLE_FORM_ITEMS = [["rustedsword","녹슨검","zacian",["zaciancrowned"],"held",""],["rustedshield","녹슨방패","zamazenta",["zamazentacrowned"],"held",""],["redorb","주홍구슬","groudon",["groudonprimal"],"held",""],["blueorb","쪽빛구슬","kyogre",["kyogreprimal"],"held",""],["griseousorb","백금옥","giratina",["giratinaorigin"],"held",""],["griseouscore","큰백금옥","giratina",["giratinaorigin"],"held",""],["adamantcrystal","큰금강옥","dialga",["dialgaorigin"],"held",""],["lustrousglobe","큰백옥","palkia",["palkiaorigin"],"held",""],["flameplate","불구슬플레이트","arceus",["arceusfire"],"held","fire"],["firememory","파이어메모리","silvally",["silvallyfire"],"held","fire"],["splashplate","물방울플레이트","arceus",["arceuswater"],"held","water"],["watermemory","워터메모리","silvally",["silvallywater"],"held","water"],["zapplate","우뢰플레이트","arceus",["arceuselectric"],"held","electric"],["electricmemory","일렉트릭메모리","silvally",["silvallyelectric"],"held","electric"],["meadowplate","초록플레이트","arceus",["arceusgrass"],"held","grass"],["grassmemory","그래스메모리","silvally",["silvallygrass"],"held","grass"],["icicleplate","고드름플레이트","arceus",["arceusice"],"held","ice"],["icememory","아이스메모리","silvally",["silvallyice"],"held","ice"],["fistplate","주먹플레이트","arceus",["arceusfighting"],"held","fighting"],["fightingmemory","파이팅메모리","silvally",["silvallyfighting"],"held","fighting"],["toxicplate","맹독플레이트","arceus",["arceuspoison"],"held","poison"],["poisonmemory","포이즌메모리","silvally",["silvallypoison"],"held","poison"],["earthplate","대지플레이트","arceus",["arceusground"],"held","ground"],["groundmemory","그라운드메모리","silvally",["silvallyground"],"held","ground"],["skyplate","푸른하늘플레이트","arceus",["arceusflying"],"held","flying"],["flyingmemory","플라잉메모리","silvally",["silvallyflying"],"held","flying"],["mindplate","이상한플레이트","arceus",["arceuspsychic"],"held","psychic"],["psychicmemory","사이킥메모리","silvally",["silvallypsychic"],"held","psychic"],["insectplate","비단벌레플레이트","arceus",["arceusbug"],"held","bug"],["bugmemory","버그메모리","silvally",["silvallybug"],"held","bug"],["stoneplate","암석플레이트","arceus",["arceusrock"],"held","rock"],["rockmemory","록메모리","silvally",["silvallyrock"],"held","rock"],["spookyplate","원령플레이트","arceus",["arceusghost"],"held","ghost"],["ghostmemory","고스트메모리","silvally",["silvallyghost"],"held","ghost"],["dracoplate","용의플레이트","arceus",["arceusdragon"],"held","dragon"],["dragonmemory","드래곤메모리","silvally",["silvallydragon"],"held","dragon"],["dreadplate","공포플레이트","arceus",["arceusdark"],"held","dark"],["darkmemory","다크메모리","silvally",["silvallydark"],"held","dark"],["ironplate","강철플레이트","arceus",["arceussteel"],"held","steel"],["steelmemory","스틸메모리","silvally",["silvallysteel"],"held","steel"],["pixieplate","정령플레이트","arceus",["arceusfairy"],"held","fairy"],["fairymemory","페어리메모리","silvally",["silvallyfairy"],"held","fairy"],["dousedrive","아쿠아카세트","genesect",["genesectdouse"],"held","water"],["shockdrive","번개카세트","genesect",["genesectshock"],"held","electric"],["burndrive","블레이즈카세트","genesect",["genesectburn"],"held","fire"],["chilldrive","프리즈카세트","genesect",["genesectchill"],"held","ice"],["wellspringmask","우물의가면","ogerpon",["ogerponwellspring"],"held","water"],["hearthflamemask","화덕의가면","ogerpon",["ogerponhearthflame"],"held","fire"],["cornerstonemask","주춧돌의가면","ogerpon",["ogerponcornerstone"],"held","rock"],["gracidea","그라시데아꽃","shaymin",["shayminsky"],"use",""],["prisonbottle","굴레의항아리","hoopa",["hoopaunbound"],"use",""],["revealglass","비추는거울","tornadus",["tornadustherian"],"use",""],["revealglass","비추는거울","thundurus",["thundurustherian"],"use",""],["revealglass","비추는거울","landorus",["landorustherian"],"use",""],["revealglass","비추는거울","enamorus",["enamorustherian"],"use",""],["rotomcatalog","로토무카탈로그","rotom",["rotomheat","rotomwash","rotomfrost","rotomfan","rotommow"],"use",""],["dnasplicers","유전자쐐기","kyurem",["kyuremblack","kyuremwhite"],"use",""],["nsolarizer","네크로플러스솔","necrozma",["necrozmaduskmane"],"use",""],["nlunarizer","네크로플러스루나","necrozma",["necrozmadawnwings"],"use",""],["reinsofunity","유대의고삐","calyrex",["calyrexice","calyrexshadow"],"use",""],["meteorite","운석","deoxys",["deoxysattack","deoxysdefense","deoxysspeed"],"use",""],["zygardecube","지가르데큐브","zygarde",["zygarde10","zygardecomplete"],"use",""]];
