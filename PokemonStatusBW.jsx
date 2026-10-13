@@ -271,12 +271,16 @@ function PokemonStatusBW({
   const evBusy = React.useRef(false);
   const checkoutBusy = React.useRef(false);
   const gachaBusy = React.useRef(false);
-  const [gachaReady, setGachaReady] = React.useState(false);
+  const gachaMegaForms = React.useMemo(() => new Set(POKEMON_STATUS_MEGA_DATA.map((row) => row[2])), []);
+  const isGachaMega = (row) => gachaMegaForms.has(row[0]) || row[0] !== row[3] && /mega[xyz]?$/.test(row[0]);
+  const gachaPool = React.useMemo(() => POKEMON_STATUS_GACHA_DATA.p.filter((row) => !isGachaMega(row)), [gachaMegaForms]);
+  const [gachaRevealed, setGachaRevealed] = React.useState(0);
+  const gachaReady = gachaRevealed >= 3;
   React.useEffect(() => {
     if (!bagMeta.gacha) return;
-    setGachaReady(false);
-    const timer = setTimeout(() => setGachaReady(true), 2300);
-    return () => clearTimeout(timer);
+    setGachaRevealed(0);
+    const timers = [1500, 2400, 3300].map((delay, index) => setTimeout(() => setGachaRevealed((count) => Math.max(count, index + 1)), delay));
+    return () => timers.forEach(clearTimeout);
   }, [bagMeta.gacha && bagMeta.gacha.id]);
   React.useEffect(() => {
     const direct = unpackSync(sync);
@@ -329,9 +333,16 @@ function PokemonStatusBW({
       if (cash > 0) { nextMoney = Math.min(9999999, nextMoney + cash); granted = true; }
       if (granted) grants.push(grantId);
     }
+    let gachaMigrated = false;
+    const pendingGacha = savedBag && savedBag.gacha;
+    const normalizedGacha = pendingGacha ? { ...pendingGacha, candidates: pendingGacha.candidates.map((pokemon) => {
+      const next = normalizeGachaCandidate(pokemon);
+      if (next !== pokemon) gachaMigrated = true;
+      return next;
+    }) } : null;
     const updatedAt = autoStored ? Date.now() : Number(saved && saved.updatedAt) || Date.now();
-    const bagUpdatedAt = granted ? Date.now() : Number(savedBag && savedBag.updatedAt) || updatedAt;
-    const nextBagMeta = { ...(savedBag && typeof savedBag === "object" ? savedBag : {}), version: 1, money: nextMoney, updatedAt: bagUpdatedAt, appliedGrants: grants.slice(-100) };
+    const bagUpdatedAt = granted || gachaMigrated ? Math.max(Date.now(), (Number(savedBag && savedBag.updatedAt) || 0) + 1) : Number(savedBag && savedBag.updatedAt) || updatedAt;
+    const nextBagMeta = { ...(savedBag && typeof savedBag === "object" ? savedBag : {}), version: 1, money: nextMoney, updatedAt: bagUpdatedAt, appliedGrants: grants.slice(-100), gacha: normalizedGacha };
     const activeUid = saved && saved.activeUid && normalizedParty.some((pokemon) => pokemon.uid === saved.activeUid && !pokemon.inBox)
       ? saved.activeUid : (normalizedParty.find((pokemon) => !pokemon.inBox) || {}).uid || "";
     const nextSnapshot = { ...(saved && typeof saved === "object" ? saved : {}), version: 1, owned: normalizedParty,
@@ -346,7 +357,7 @@ function PokemonStatusBW({
     if (seedState && normalizedParty.length && (!templateState || autoStored || updatedAt > Number(templateState.updatedAt || 0)) && typeof setTemplateValue === "function") {
       try { setTemplateValue("POKEMON_STATE", encodeURIComponent(JSON.stringify(nextSnapshot))); } catch (ignore) { /* stateText can restore it */ }
     }
-    if ((!savedBag || savedBag.money == null || granted) && typeof setTemplateValue === "function") {
+    if ((!savedBag || savedBag.money == null || granted || gachaMigrated) && typeof setTemplateValue === "function") {
       try { setTemplateValue("POKEMON_BAG", encodeURIComponent(JSON.stringify({ ...nextBagMeta, items: nextBag }))); } catch (ignore) { /* fallback props */ }
     }
     if ((granted || autoStored) && typeof sendToAI === "function") {
@@ -433,7 +444,7 @@ function PokemonStatusBW({
         await setTemplateValue("POKEMON_BAG", encodeURIComponent(JSON.stringify(nextBagMeta)));
       } catch (ignore) { setNotice("저장에 실패했습니다. 다음 호출에는 stateText와 bagText를 전달해 주세요."); }
     }
-    if (typeof sendToAI === "function") {
+    if (options.notify !== false && typeof sendToAI === "function") {
       try { await sendToAI("[POKEMON_SYNC]" + JSON.stringify(packSync(nextSnapshot, nextBagMeta)) + "[/POKEMON_SYNC]", true); }
       catch (ignore) { /* The saved template and visible screen remain available. */ }
     }
@@ -480,16 +491,16 @@ function PokemonStatusBW({
     gachaBusy.current = true;
     try {
       const level = gachaLevel(state.owned);
-      const pool = [...POKEMON_STATUS_GACHA_DATA.p];
+      const pool = [...gachaPool];
       const id = "draw-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 10);
       const candidates = Array.from({ length: 3 }, (_, index) => {
         const picked = pool.splice(Math.floor(Math.random() * pool.length), 1)[0];
         return makeGachaPokemon(picked, level, id + "-" + index);
       });
-      setGachaReady(false);
+      setGachaRevealed(0);
       setView("gacha");
       await save(state.owned || [], normalizeBag(wallet.items || bag), "₽10,000을 지불했습니다. 풀숲이 흔들립니다…", {
-        money: cash - 10000, gacha: { id, createdAt: Date.now(), candidates }
+        money: cash - 10000, gacha: { id, createdAt: Date.now(), candidates }, notify: false
       });
     } finally { gachaBusy.current = false; }
   };
@@ -502,7 +513,7 @@ function PokemonStatusBW({
     gachaBusy.current = true;
     try {
       const inBox = (state.owned || []).filter((pokemon) => !pokemon.inBox).length >= 6;
-      const pokemon = { ...candidate, inBox };
+      const pokemon = { ...normalizeGachaCandidate(candidate), inBox };
       await save([...(state.owned || []), pokemon], normalizeBag(wallet.items || bag),
         displayName(pokemon) + "이(가) 동료가 됐습니다! " + (inBox ? "PC에 보관했습니다." : "파티에 합류했습니다."), {
           money: wallet.money, gacha: null, activeUid: state.activeUid || pokemon.uid
@@ -533,6 +544,12 @@ function PokemonStatusBW({
       next.pp = next.moves.map((id, index) => Math.min((pokemon.pp || [])[index] || 0, (teachCatalog.moves.find((entry) => entry[0] === id) || [])[4] || 99));
     }
     return next;
+  };
+  const normalizeGachaCandidate = (pokemon) => {
+    const row = POKEMON_STATUS_GACHA_DATA.p.find((entry) => entry[0] === idOf(pokemon.species));
+    if (!row || !isGachaMega(row)) return pokemon;
+    const mega = POKEMON_STATUS_MEGA_DATA.find((entry) => entry[2] === row[0]);
+    return withForm({ ...pokemon, speciesNameKo: pokemon.speciesNameKo || row[2], nickname: pokemon.nickname || row[2] }, mega ? mega[0] : row[3], "");
   };
   const heldForm = (pokemon, itemId) => {
     const rules = POKEMON_STATUS_FORM_ITEMS.filter((entry) => entry[4] === "held");
@@ -827,7 +844,7 @@ function PokemonStatusBW({
     backgroundColor: "#0b1c28", backgroundImage: "linear-gradient(#263b49 1px,transparent 1px),linear-gradient(90deg,#263b49 1px,transparent 1px)",
     backgroundSize: "22px 22px", border: "4px solid #091923", color: "#fff", fontFamily: "monospace" }}>
     <div style={{ ...panel, display: "flex", justifyContent: "space-between", gap: 8, padding: "8px 12px", marginBottom: 10 }}>
-      <strong>{view === "home" ? "메뉴" : view === "gacha" ? "풀숲의 만남" : view === "formchoice" ? "폼체인지" : view === "party" ? "포켓몬" : view === "pc" ? "PC 보관함" : view === "swap" ? "파티 교체" : view === "detail" ? "포켓몬 정보" : view === "ev" ? "노력치 조정" : view === "nature" ? "성격 변경" : view === "ability" ? "특성 변경" : view === "teach" ? "기술 배우기" : view === "forget" ? "기술 교체" : view === "bag" ? "가방" : view === "shop" ? "상점" : view === "evolution" ? "진화" : view === "evochoice" ? "진화 선택" : view === "held" ? "지닌물건" : view === "holdtarget" ? "지닌물건 줄 포켓몬" : "아이템 사용"} <span style={{ color: "#ffe289", fontSize: 10 }}>v0.2.0</span></strong>
+      <strong>{view === "home" ? "메뉴" : view === "gacha" ? "풀숲의 만남" : view === "formchoice" ? "폼체인지" : view === "party" ? "포켓몬" : view === "pc" ? "PC 보관함" : view === "swap" ? "파티 교체" : view === "detail" ? "포켓몬 정보" : view === "ev" ? "노력치 조정" : view === "nature" ? "성격 변경" : view === "ability" ? "특성 변경" : view === "teach" ? "기술 배우기" : view === "forget" ? "기술 교체" : view === "bag" ? "가방" : view === "shop" ? "상점" : view === "evolution" ? "진화" : view === "evochoice" ? "진화 선택" : view === "held" ? "지닌물건" : view === "holdtarget" ? "지닌물건 줄 포켓몬" : "아이템 사용"} <span style={{ color: "#ffe289", fontSize: 10 }}>v0.2.1</span></strong>
       <span>{trainerName} · 보유 {owned.length}마리 · ₽{money.toLocaleString()}{bag.keystone > 0 ? " · 키스톤 보유" : ""}</span>
     </div>
     {view === "home" && <div style={{ display: "grid", gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: 10, minHeight: 260, alignContent: "center" }}>
@@ -842,28 +859,28 @@ function PokemonStatusBW({
     {view === "gacha" && <div style={{ ...panel, overflow: "hidden", padding: 10, textAlign: "center" }}>
       <style>{`@keyframes pokemon-gacha-jump{0%{transform:translateY(75px) scale(.65);opacity:0}45%{transform:translateY(-16px) scale(1);opacity:1}70%,100%{transform:translateY(0);opacity:1}}@keyframes pokemon-gacha-grass{0%,100%{transform:skewX(0)}25%{transform:skewX(-9deg)}75%{transform:skewX(9deg)}}`}</style>
       <strong style={{ display: "block", color: "#ffe289", fontSize: 17 }}>풀숲의 만남</strong>
-      <p style={{ fontSize: 12, lineHeight: 1.6 }}>₽10,000 · 세 마리 중 한 마리가 동료가 됩니다.<br />전설·환상·리전폼·특수 폼 포함 · 후보 중복 없음</p>
+      <p style={{ fontSize: 12, lineHeight: 1.6 }}>₽10,000 · 세 마리 중 한 마리가 동료가 됩니다.<br />전설·환상·리전폼·특수 폼 포함 · 메가폼 제외 · 후보 중복 없음</p>
       {bagMeta.gacha ? <>
         <div key={bagMeta.gacha.id} style={{ display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 6,
           minHeight: 205, padding: "28px 3px 12px", backgroundColor: "#35553b", backgroundImage: "linear-gradient(#173b3933,#163327aa),url(" + ROOT + "gen6bgs/bg-forest.jpg)", backgroundSize: "cover", backgroundPosition: "center", border: "2px solid #8cc884" }}>
-          {bagMeta.gacha.candidates.map((pokemon, index) => <div key={pokemon.uid} style={{ minWidth: 0 }}>
+          {bagMeta.gacha.candidates.map((pokemon, index) => <div key={pokemon.uid} data-gacha-index={index} data-revealed={gachaRevealed > index} style={{ minWidth: 0 }}>
             <div style={{ position: "relative", height: 108, overflow: "hidden" }}>
               <div style={{ position: "absolute", bottom: 15, insetInline: 0, height: 90, display: "flex", justifyContent: "center",
-                animation: "pokemon-gacha-jump .8s " + index * .18 + "s both", filter: gachaReady ? "none" : "brightness(0)", transition: "filter .6s" }}>
+                animation: "pokemon-gacha-jump .8s " + index * .18 + "s both", filter: gachaRevealed > index ? "none" : "brightness(0)", transition: "filter .5s" }}>
                 {sprite(pokemon, 90, true)}
               </div>
               <div aria-hidden="true" style={{ position: "absolute", bottom: 0, insetInline: 0, height: 34,
                 background: "linear-gradient(#9ecb58,#347638 65%,#1d542c)", clipPath: "polygon(0 100%,0 35%,12% 60%,9% 5%,25% 50%,29% 0,40% 54%,46% 14%,53% 54%,66% 0,66% 58%,80% 12%,82% 65%,100% 25%,100% 100%)",
-                animation: gachaReady ? "none" : "pokemon-gacha-grass .3s infinite" }} />
+                animation: gachaRevealed > index ? "none" : "pokemon-gacha-grass .3s infinite" }} />
             </div>
             <div style={{ minHeight: 58, marginTop: 7, fontSize: 12, lineHeight: 1.4, overflowWrap: "anywhere" }}>
-              <strong>{gachaReady ? (pokemon.shiny ? "✦ " : "") + displayName(pokemon) : "???"}</strong><br />Lv.{pokemon.level}
+              <strong>{gachaRevealed > index ? (pokemon.shiny ? "✦ " : "") + displayName(pokemon) : "???"}</strong><br />Lv.{pokemon.level}
             </div>
             {button("선택", () => chooseGacha(pokemon.uid), false, !gachaReady)}
           </div>)}
         </div>
-        <p aria-live="polite" style={{ fontSize: 12 }}>{gachaReady ? "함께 여행할 포켓몬을 선택하세요." : "풀숲에서 세 개의 그림자가 튀어나왔다!"}</p>
-        {!gachaReady && button("연출 건너뛰기", () => setGachaReady(true))}
+        <p aria-live="polite" style={{ fontSize: 12 }}>{gachaReady ? "함께 여행할 포켓몬을 선택하세요." : gachaRevealed ? "왼쪽부터 모습을 드러내고 있다… (" + gachaRevealed + "/3)" : "풀숲에서 세 개의 그림자가 튀어나왔다!"}</p>
+        {!gachaReady && button("연출 건너뛰기", () => setGachaRevealed(3))}
       </> : <>
         <div style={{ padding: "40px 8px", backgroundColor: "#35553b", backgroundImage: "linear-gradient(#173b3944,#16332799),url(" + ROOT + "gen6bgs/bg-forest.jpg)", backgroundSize: "cover", backgroundPosition: "center", marginBottom: 12, color: "#e0f2bd", textShadow: "2px 2px #193b2c", fontSize: 32 }}>?　　?　　?</div>
         <p style={{ fontSize: 12 }}>등장 레벨 {gachaLevel(owned)} · 파티 평균 반올림{partyMembers.length ? "" : " (빈 파티는 Lv.5)"}<br />소지금 ₽{money.toLocaleString()} · 선택 후 {partyMembers.length < 6 ? "파티 합류" : "PC 보관"}</p>
