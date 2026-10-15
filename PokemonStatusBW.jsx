@@ -375,27 +375,32 @@ function PokemonStatusBW({
     const dexNum = POKEMON_STATUS_DATA.index[speciesId] ||
       POKEMON_STATUS_DATA.names.indexOf(species) + 1 ||
       POKEMON_STATUS_DATA.names.indexOf(String(pokemon.speciesNameKo || "")) + 1 || baseIndex;
-    const rawId = String(pokemon.spriteId || speciesId).toLowerCase().replace(/[^a-z0-9-]/g, "");
+    const rawId = String(pokemon.spriteId || speciesId).toLowerCase().replace(/[^a-z0-9-]/g, "").replace(/-mega-([xyz])$/, "-mega$1");
     const baseId = dexNum > 0 ? POKEMON_STATUS_DATA.baseIds[dexNum - 1] : "";
     const formSpriteId = baseId && speciesId && speciesId !== baseId && speciesId.startsWith(baseId)
       ? baseId + "-" + speciesId.slice(baseId.length) : baseId || speciesId;
-    const exactIds = [...new Set([formSpriteId, rawId, speciesId].filter(Boolean))];
+    const exactIds = [...new Set([formSpriteId, rawId, speciesId].filter((id) => id && (formSpriteId === baseId || idOf(id) !== baseId)))];
     const pokeRoot = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/";
     // Z-A pixel fallback: PokéAPI sprites, credited to Kyledove / DoveKyle.
     const zaNumber = POKEMON_STATUS_ZA_SPRITE_IDS[speciesId];
+    const zaSprite = (shiny) => !zaNumber ? [] : [zaNumber === 10301
+      ? pokeRoot + "other/home/" + (shiny ? "shiny/" : "") + zaNumber + ".png"
+      : pokeRoot + (shiny ? "shiny/" : "") + zaNumber + ".png"];
     const urls = [
       ...(pokemon.shiny ? [
         ...exactIds.flatMap((id) => [ROOT + "gen5ani-shiny/" + id + ".gif", ROOT + "gen5-shiny/" + id + ".png",
           ROOT + "ani-shiny/" + id + ".gif", ROOT + "dex-shiny/" + id + ".png"]),
+        ...zaSprite(true),
         formSpriteId === baseId && dexNum > 0 && dexNum <= 649 ? pokeRoot + "versions/generation-v/black-white/shiny/" + dexNum + ".png" : "",
         formSpriteId === baseId && dexNum > 0 ? pokeRoot + "shiny/" + dexNum + ".png" : ""
       ] : []),
       formSpriteId === baseId && dexNum > 0 && dexNum <= 649 ? pokeRoot + "versions/generation-v/black-white/" + dexNum + ".png" : "",
       ...exactIds.flatMap((id) => [ROOT + "gen5/" + id + ".png", ROOT + "gen5ani/" + id + ".gif",
         ROOT + "ani/" + id + ".gif", ROOT + "dex/" + id + ".png"]),
-      zaNumber && zaNumber !== 10301 ? pokeRoot + zaNumber + ".png" : "",
-      zaNumber === 10301 ? pokeRoot + "other/home/10301.png" : "",
-      ...(baseId && !exactIds.includes(baseId) ? [ROOT + "gen5/" + baseId + ".png", ROOT + "dex/" + baseId + ".png"] : []),
+      ...zaSprite(false),
+      ...(baseId && !exactIds.includes(baseId) ? [
+        ...(pokemon.shiny ? [ROOT + "gen5-shiny/" + baseId + ".png", ROOT + "dex-shiny/" + baseId + ".png"] : []),
+        ROOT + "gen5/" + baseId + ".png", ROOT + "dex/" + baseId + ".png"] : []),
       dexNum > 0 ? pokeRoot + dexNum + ".png" : ""
     ].filter(Boolean);
     return <span style={{ display: "inline-flex", width: size, height: size, flexShrink: 0,
@@ -844,7 +849,7 @@ function PokemonStatusBW({
     backgroundColor: "#0b1c28", backgroundImage: "linear-gradient(#263b49 1px,transparent 1px),linear-gradient(90deg,#263b49 1px,transparent 1px)",
     backgroundSize: "22px 22px", border: "4px solid #091923", color: "#fff", fontFamily: "monospace" }}>
     <div style={{ ...panel, display: "flex", justifyContent: "space-between", gap: 8, padding: "8px 12px", marginBottom: 10 }}>
-      <strong>{view === "home" ? "메뉴" : view === "gacha" ? "풀숲의 만남" : view === "formchoice" ? "폼체인지" : view === "party" ? "포켓몬" : view === "pc" ? "PC 보관함" : view === "swap" ? "파티 교체" : view === "detail" ? "포켓몬 정보" : view === "ev" ? "노력치 조정" : view === "nature" ? "성격 변경" : view === "ability" ? "특성 변경" : view === "teach" ? "기술 배우기" : view === "forget" ? "기술 교체" : view === "bag" ? "가방" : view === "shop" ? "상점" : view === "evolution" ? "진화" : view === "evochoice" ? "진화 선택" : view === "held" ? "지닌물건" : view === "holdtarget" ? "지닌물건 줄 포켓몬" : "아이템 사용"} <span style={{ color: "#ffe289", fontSize: 10 }}>v0.2.1</span></strong>
+      <strong>{view === "home" ? "메뉴" : view === "gacha" ? "풀숲의 만남" : view === "formchoice" ? "폼체인지" : view === "party" ? "포켓몬" : view === "pc" ? "PC 보관함" : view === "swap" ? "파티 교체" : view === "detail" ? "포켓몬 정보" : view === "ev" ? "노력치 조정" : view === "nature" ? "성격 변경" : view === "ability" ? "특성 변경" : view === "teach" ? "기술 배우기" : view === "forget" ? "기술 교체" : view === "bag" ? "가방" : view === "shop" ? "상점" : view === "evolution" ? "진화" : view === "evochoice" ? "진화 선택" : view === "held" ? "지닌물건" : view === "holdtarget" ? "지닌물건 줄 포켓몬" : "아이템 사용"} <span style={{ color: "#ffe289", fontSize: 10 }}>v0.2.2</span></strong>
       <span>{trainerName} · 보유 {owned.length}마리 · ₽{money.toLocaleString()}{bag.keystone > 0 ? " · 키스톤 보유" : ""}</span>
     </div>
     {view === "home" && <div style={{ display: "grid", gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: 10, minHeight: 260, alignContent: "center" }}>
